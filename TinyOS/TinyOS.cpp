@@ -142,44 +142,9 @@ typedef int ID;
 typedef ID ER;
 typedef unsigned int UINT;
 typedef UINT FLGPTN;
-
-/*----------------------------------------------------------------------*/
+typedef UINT MODE;
 
 #define E_OK					(0x00)	/* 00h  normal exit						*/
-#define	E_MEM					(0x01)  /* 01h  can't obtain memory area		*/
-#define	E_UNDEF_SVC				(0x02)  /* 02h  illegal system call				*/
-#define	E_CONTEXT				(0x03)  /* 03h  context error					*/
-#define	E_ACCESS_ADR			(0x04)  /* 04h  access address error			*/
-#define	E_ILLEGAL_ADR			(0x05)  /* 05h  illegal address ( aa )			*/
-#define	E_PACKET_ADR			(0x06)  /* 06h  illegal address ( pa )			*/
-#define	E_BLOCK_ADR				(0x07)  /* 07h  illegal address ( ma, mba )		*/
-#define	E_START_ADR				(0x08)  /* 08h  illegal address ( psa )			*/
-#define	E_ALREADY_EXIST			(0x09)  /* 09h  existent object					*/
-#define	E_NOT_EXIST				(0x0A)  /* 0ah  not exist object				*/
-#define	E_NOT_IDLE				(0x0B)  /* 0bh  task status isn't idle			*/
-#define	E_NOT_SUSPEND			(0x0C)  /* 0ch  task status isn't suspend		*/
-#define	E_IDLE					(0x0D)  /* 0dh  task status is idle				*/
-#define	E_ID0					(0x0E)  /* 0eh  task id equal '0'				*/
-#define	E_ID_BOUND				(0x0F)  /* 0fh  task id is greater than max_id	*/
-#define	E_TIMEOUT				(0x10)  /* 10h  timeout error					*/
-#define	E_COUNT_OVER			(0x11)  /* 11h  queue count overflow			*/
-#define	E_SELF_TASK				(0x12)  /* 12h  self task no-good				*/
-#define	E_DELETE_OBJ			(0x13)  /* 13h  delete obj on something_wait	*/
-#define	E_OPTION				(0x14)  /* 14h  can't use this option			*/
-#define	E_FLG_WAIT				(0x15)  /* 15h  task already wait on this evf	*/
-#define	E_TIMER					(0x16)  /* 16h  can't use timer					*/
-#define	E_PRIORITY				(0x17)  /* 17h  priority error					*/
-#define	E_INTERRUPT_PRIORITY	(0x18)  /* 18h  interrut priority error			*/
-#define	E_NON_CYCLIC			(0x19)  /* 19h  can_cwak to non-cyclic task		*/
-#define	E_POOL_SIZE				(0x1A)  /* 1ah  memory pool size error			*/
-#define	E_MEMORY_BLOCK			(0x1B)  /* 1bh  rel_blk to not system memory	*/
-#define	E_DEVICE_NO				(0x1C)  /* 1ch  illegal device number			*/
-#define	E_MES_OVER				(0x1D)  /* 1dh  message buffer overflow			*/
-#define	E_ERROR					(0x1E)  /* 1eh  others system error				*/
-#define	E_PARAM					(0x1F)  /* 1fh  illegal parameter				*/
-#define	E_SVC					(0x40) 	/* 40h  illegal system cal number		*/
-#define	E_EXCEPTION				(0x80)  /* 80h  error in exception proc.		*/
-#define	E_SYS_OBJECT			(0x81)  /* 81h  this object is system task		*/
 
 void TermitTask(ID tskid) {
 	std::shared_ptr<TaskInfo> taskinfo = manager.getContext(tskid);
@@ -187,10 +152,44 @@ void TermitTask(ID tskid) {
 	TaskYield();
 }
 
+// フラグ操作モードの定義
+#define TWF_ANDW    0x00u
+#define TWF_ORW     0x01u
+
+std::unordered_map<ID, FLGPTN> flagTable; // フラグ管理用マップ
 
 void SetFlag(ID flgid, FLGPTN setptn) {
+	flagTable[flgid] |= setptn; // フラグの設定
+	TaskYield(); // 実行権を譲る
+	SetEvent(yieldEvent); // 待機中のタスクを再開
 }
 
+void ClearFlag(ID flgid, FLGPTN clearptn) {
+	flagTable[flgid] &= ~clearptn; // フラグのクリア
+	TaskYield(); // 実行権を譲る
+}
+
+void WaitFlg(ID flgid, FLGPTN waiptn, MODE wfmode, FLGPTN *p_flgptn) {
+	while (true) {
+		FLGPTN currentFlags = flagTable[flgid];
+
+		bool conditionMet = false;
+		if (wfmode == TWF_ANDW) {
+			conditionMet = ((currentFlags & waiptn) == waiptn);
+		}
+		else if (wfmode == TWF_ORW) {
+			conditionMet = ((currentFlags & waiptn) != 0);
+		}
+
+		if (conditionMet) {
+			*p_flgptn = currentFlags;
+			break;
+		}
+
+		TaskYield(); // 実行権を譲る
+		Sleep(10); // ウェイトを入れて他のタスクに実行権を譲る
+	}
+}
 
 // ------------------------------------------
 
@@ -198,16 +197,18 @@ int main() {
 	// ユーザー定義タスクを作成
 	CreateTask(ID_AAA, "Task 1", []() {
 		while (true) {
-			std::cout << "Running Task 1" << std::endl;
-			TaskYield(); // 実行権を譲る
-			Sleep(100); // タスク処理のウェイト
+			std::cout << "Task 1 is waiting for flag." << std::endl;
+			FLGPTN resultFlag;
+			WaitFlg(ID_AAA, 0x01, TWF_ORW, &resultFlag);
+			ClearFlag(ID_AAA, ~0x01);
+			std::cout << "Task 1 acquired flag: " << resultFlag << std::endl;
 		}
 	});
 
 	CreateTask(ID_BBB, "Task 2", []() {
 		while (true) {
-			std::cout << "Running Task 2" << std::endl;
-			TaskYield(); // 実行権を譲る
+			std::cout << "Task 2 is setting flag." << std::endl;
+			SetFlag(ID_AAA, 0x01);
 			Sleep(150); // タスク処理のウェイト
 		}
 	});
@@ -219,8 +220,8 @@ int main() {
 	for (auto& task : tasks) {
 		WaitForSingleObject(task->threadHandle, INFINITE);
 		CloseHandle(task->threadHandle);
-		// delete task;
 	}
 	CloseHandle(yieldEvent);
+
 	return 0;
 }
