@@ -3,6 +3,9 @@
 #include <vector>
 #include <functional>
 #include <string>
+#include <unordered_map>
+#include <memory>
+#include <stdexcept>
 
 // タスクの関数プロトタイプ
 using TaskFunction = std::function<void()>;
@@ -12,7 +15,7 @@ struct TaskInfo {
 	HANDLE threadHandle;
 	DWORD threadId;
 	std::string taskName;
-	bool isActive;
+	bool isExist;
 	TaskFunction taskFunction;
 };
 
@@ -20,20 +23,67 @@ struct TaskInfo {
 std::vector<TaskInfo*> tasks;
 HANDLE yieldEvent;
 
+
+
+
+
+// IDの列挙型定義
+enum {
+	ID_AAA,
+	ID_BBB,
+	/* --- */
+	ID_MAX
+};
+
+
+
+
+// ContextManagerクラス - IDでContextを登録・取得する
+class ContextManager {
+public:
+	// コンテキストをIDに基づいて登録
+	void registerContext(int id, TaskInfo* context) {
+		if (id < 0 || id >= ID_MAX) {
+			throw std::out_of_range("Invalid ID");
+		}
+		contexts_[id] = context;
+	}
+
+	// IDに基づいてコンテキストを取得
+	TaskInfo* getContext(int id) const {
+		auto it = contexts_.find(id);
+		if (it != contexts_.end()) {
+			return it->second;
+		}
+		else {
+			throw std::out_of_range("Context not found for given ID");
+		}
+	}
+
+private:
+	// コンテキストを格納するマップ
+	std::unordered_map<int, TaskInfo*> contexts_;
+} manager;
+
+
+
+
 // ユーザー定義タスクの生成関数
-void CreateTask(const std::string& name, TaskFunction taskFunction) {
+void CreateTask(int id, const std::string& name, TaskFunction taskFunction) {
 	// TaskInfoを動的に割り当て
 	TaskInfo* taskInfo = new TaskInfo;
 	taskInfo->taskName = name;
-	taskInfo->isActive = true;
+	taskInfo->isExist = true;
 	taskInfo->taskFunction = std::move(taskFunction);
+
+	manager.registerContext(id, taskInfo);
 
 	taskInfo->threadHandle = CreateThread(
 		nullptr,
 		0,
 		[](LPVOID param) -> DWORD {
 		auto* taskInfo = reinterpret_cast<TaskInfo*>(param);
-		while (taskInfo->isActive) {
+		while (taskInfo->isExist) {
 			// ユーザー定義のタスク関数を実行
 			taskInfo->taskFunction();
 			// 実行権を譲る
@@ -66,7 +116,7 @@ void StartDispatcher() {
 
 	while (true) {
 		for (auto& task : tasks) {
-			if (task->isActive) {
+			if (task->isExist) {
 				// タスクに実行権を渡す
 				SetEvent(yieldEvent);
 				std::cout << "Dispatching: " << task->taskName << std::endl;
@@ -83,9 +133,23 @@ void TaskYield() {
 	WaitForSingleObject(yieldEvent, INFINITE);
 }
 
+// ------------------------------------------
+
+typedef int ID;
+typedef ID ER;
+#define	E_OK 0
+
+void TermitTask(ID tskid) {
+	TaskInfo* taskinfo = manager.getContext(tskid);
+	taskinfo->isExist = false;
+	TaskYield();
+}
+
+// ------------------------------------------
+
 int main() {
 	// ユーザー定義タスクを作成
-	CreateTask("Task 1", []() {
+	CreateTask(ID_AAA, "Task 1", []() {
 		while (true) {
 			std::cout << "Running Task 1" << std::endl;
 			TaskYield(); // 実行権を譲る
@@ -93,7 +157,7 @@ int main() {
 		}
 	});
 
-	CreateTask("Task 2", []() {
+	CreateTask(ID_BBB, "Task 2", []() {
 		while (true) {
 			std::cout << "Running Task 2" << std::endl;
 			TaskYield(); // 実行権を譲る
