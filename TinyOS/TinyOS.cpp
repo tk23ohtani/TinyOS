@@ -13,9 +13,13 @@
 typedef int ID;
 typedef ID ER;
 typedef unsigned int UINT;
+typedef unsigned long UW;
+typedef char VB;
+typedef void *VP;
+typedef VP VP_INT;
 typedef UINT FLGPTN;
 typedef UINT MODE;
-typedef UINT RELTIM;
+typedef UW RELTIM;
 
 #define E_OK					(0x00)	/* 00h  normal exit						*/
 
@@ -37,6 +41,9 @@ struct TaskInfo {
 	FLGPTN waitptn;
 	MODE waitmode;
 	// <-- EVENT FLAG ---
+	// --- EVENT FLAG -->
+	VP_INT receptData;
+	// <-- EVENT FLAG ---
 	TaskFunction taskFunction;
 };
 
@@ -55,6 +62,7 @@ enum {
 	ID_AAA,
 	ID_BBB,
 	ID_CCC,
+	ID_DDD,
 	/* --- */
 	ID_MAX
 };
@@ -230,7 +238,6 @@ void SetFlag(ID flgid, FLGPTN setptn) {
 
 	std::cout << "Set Flag 1 acquired flag: " << currentFlags << std::endl;
 
-	flagTable[flgid].waitQueue;
 	if (!flagTable[flgid].waitQueue.empty()) {
 		std::shared_ptr<TaskInfo> task = flagTable[flgid].waitQueue.front();
 		flagTable[flgid].waitQueue.pop();
@@ -285,6 +292,72 @@ void WaitFlg(ID flgid, FLGPTN waiptn, MODE wfmode, FLGPTN *p_flgptn) {
 	}
 }
 
+typedef struct t_rflg {
+	ID          wtskid;
+	FLGPTN      flgptn;
+	VB    const *name;
+} T_RFLG;
+
+void ReferenceFlg(ID flgid, T_RFLG *pk_rflg) {
+	if (pk_rflg) {
+		pk_rflg->flgptn = flagTable[flgid].flgptn;
+	}
+}
+
+// タスク情報構造体
+struct DtqInfo {
+	VP_INT data;
+	UINT count;
+	std::queue<std::shared_ptr<TaskInfo>> waitQueue;
+};
+
+std::unordered_map<ID, DtqInfo> dataQueueTable; // データキュー管理用マップ
+
+
+typedef struct t_rdtq {
+	ID          stskid;
+	ID          rtskid;
+	UINT        sdtqcnt;
+	VB    const *name;
+} T_RDTQ;
+
+void pSendDataQueue(ID dtqid, VP_INT data) {
+	dataQueueTable[dtqid].data = data;
+	++dataQueueTable[dtqid].count;
+
+	std::cout << "Send DataQueue data: " << data << std::endl;
+
+	if (!dataQueueTable[dtqid].waitQueue.empty()) {
+		std::shared_ptr<TaskInfo> task = dataQueueTable[dtqid].waitQueue.front();
+		dataQueueTable[dtqid].waitQueue.pop();
+		if (task->isExist && task->isWaiting) {
+			std::cout << "Send DataQueue task: " << task->taskName << std::endl;
+			task->receptData = dataQueueTable[dtqid].data;
+			--dataQueueTable[dtqid].count;
+			task->isWaiting = false;
+			readyQueue.push(task); // 再度レディーキューに追加
+		}
+		if (task->isWaiting) dataQueueTable[dtqid].waitQueue.push(task);
+	}
+	TaskYield(); // 実行権を譲る
+}
+
+void ReceiveDataQueue(ID dtqid, VP_INT *p_data) {
+	// すでにキューにデータが貯まっている場合の対処
+	if (dataQueueTable[dtqid].count) {
+		*p_data = dataQueueTable[dtqid].data;
+		--dataQueueTable[dtqid].count;
+	}
+	else {
+		running_task->isWaiting = true; // 自タスクを待ち状態にする
+		dataQueueTable[dtqid].waitQueue.push(running_task);
+		TaskYield(); // 実行権を譲る
+		*p_data = running_task->receptData;	// キューからデータを受け取る
+	}
+}
+
+void ReferenceDataQueue(ID dtqid, T_RDTQ *pk_rdtq);
+
 // ------------------------------------------
 
 int main() {
@@ -311,12 +384,26 @@ int main() {
 
 	CreateTask(ID_CCC, "Task 3", []() {
 		while (true) {
-			std::cout << "Task 3 is setting flag." << std::endl;
+			std::cout << "Task 3 is waiting for dtq." << std::endl;
+			VP_INT dtq_data;
+			int data;
+			ReceiveDataQueue(ID_AAA, &dtq_data);
+			data = (int)dtq_data;
+			std::cout << "Task 3 recept data: " << data << std::endl;
+		}
+	});
+
+	CreateTask(ID_DDD, "Task 4", []() {
+		while (true) {
+			std::cout << "Task 4 is setting flag." << std::endl;
 			DelayTask(10);
 			SetFlag(ID_AAA, 0x02);
-			std::cout << "Task 3 is setting flag." << std::endl;
+			std::cout << "Task 4 is setting flag." << std::endl;
 			DelayTask(10);
 			SetFlag(ID_AAA, 0x01);
+			std::cout << "Task 4 is sending data." << std::endl;
+			DelayTask(10);
+			pSendDataQueue(ID_AAA, (VP_INT)123);
 		}
 	});
 
