@@ -147,9 +147,11 @@ void StartDispatcher() {
 			readyQueue.pop();
 			if (running_task->isExist && !running_task->isWaiting) {
 
+				std::cout << "Dispatching: " << running_task->taskName << std::endl;
+				Sleep(50);
+
 				// タスクに実行権を渡す
 				SetEvent(yieldEvent);
-				std::cout << "Dispatching: " << running_task->taskName << std::endl;
 				Sleep(500); // スケジューリングのためのウェイト
 
 				if (!running_task->isWaiting) readyQueue.push(running_task); // 再度レディーキューに追加
@@ -190,6 +192,9 @@ std::unordered_map<ID, FlagInfo> flagTable; // フラグ管理用マップ
 void SetFlag(ID flgid, FLGPTN setptn) {
 	FLGPTN currentFlags = (flagTable[flgid].flgptn |= setptn); // フラグの設定
 
+	std::cout << "Set Flag 1 acquired flag: " << currentFlags << std::endl;
+	Sleep(50);
+
 	flagTable[flgid].waitQueue;
 	if (!flagTable[flgid].waitQueue.empty()) {
 		std::shared_ptr<TaskInfo> task = flagTable[flgid].waitQueue.front();
@@ -203,13 +208,15 @@ void SetFlag(ID flgid, FLGPTN setptn) {
 				conditionMet = ((currentFlags & task->waitptn) != 0);
 			}
 			if (conditionMet) {
+				std::cout << "Resumu Flag 1 task: " << task->taskName << std::endl;
+				Sleep(50);
 				task->isWaiting = false;
 				readyQueue.push(task); // 再度レディーキューに追加
 				task->waitptn = currentFlags;	// 本当は使い回しは良くないが、待ちパターンに解除パターンを入れて戻す
 				// break;
 			}
 		}
-		if (!task->isWaiting) flagTable[flgid].waitQueue.push(task);
+		if (task->isWaiting) flagTable[flgid].waitQueue.push(task);
 	}
 
 	TaskYield(); // 実行権を譲る
@@ -240,6 +247,7 @@ int main() {
 			WaitFlg(ID_AAA, 0x01, TWF_ORW, &resultFlag);
 			ClearFlag(ID_AAA, ~0x01);
 			std::cout << "Task 1 acquired flag: " << resultFlag << std::endl;
+			Sleep(50);
 			SetFlag(ID_AAA, 0x02);
 			Sleep(1500); // タスク処理のウェイト
 		}
@@ -248,11 +256,13 @@ int main() {
 	CreateTask(ID_BBB, "Task 2", []() {
 		while (true) {
 			std::cout << "Task 2 is setting flag." << std::endl;
+			Sleep(50);
 			SetFlag(ID_AAA, 0x01);
 			Sleep(1500); // タスク処理のウェイト
 			FLGPTN resultFlag;
 			WaitFlg(ID_AAA, 0x02, TWF_ORW, &resultFlag);
 			ClearFlag(ID_AAA, ~0x02);
+			std::cout << "Task 2 acquired flag: " << resultFlag << std::endl;
 		}
 	});
 
