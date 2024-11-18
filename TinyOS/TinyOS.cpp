@@ -148,7 +148,6 @@ void StartDispatcher() {
 			if (running_task->isExist && !running_task->isWaiting) {
 
 				std::cout << "Dispatching: " << running_task->taskName << std::endl;
-				Sleep(50);
 
 				// タスクに実行権を渡す
 				SetEvent(yieldEvent);
@@ -157,6 +156,12 @@ void StartDispatcher() {
 				if (!running_task->isWaiting) readyQueue.push(running_task); // 再度レディーキューに追加
 
 			}
+			else {
+				Sleep(500); // スケジューリングのためのウェイト
+			}
+		}
+		else {
+			Sleep(500); // スケジューリングのためのウェイト
 		}
 	}
 }
@@ -193,7 +198,6 @@ void SetFlag(ID flgid, FLGPTN setptn) {
 	FLGPTN currentFlags = (flagTable[flgid].flgptn |= setptn); // フラグの設定
 
 	std::cout << "Set Flag 1 acquired flag: " << currentFlags << std::endl;
-	Sleep(50);
 
 	flagTable[flgid].waitQueue;
 	if (!flagTable[flgid].waitQueue.empty()) {
@@ -209,7 +213,6 @@ void SetFlag(ID flgid, FLGPTN setptn) {
 			}
 			if (conditionMet) {
 				std::cout << "Resumu Flag 1 task: " << task->taskName << std::endl;
-				Sleep(50);
 				task->isWaiting = false;
 				readyQueue.push(task); // 再度レディーキューに追加
 				task->waitptn = currentFlags;	// 本当は使い回しは良くないが、待ちパターンに解除パターンを入れて戻す
@@ -228,12 +231,27 @@ void ClearFlag(ID flgid, FLGPTN clearptn) {
 }
 
 void WaitFlg(ID flgid, FLGPTN waiptn, MODE wfmode, FLGPTN *p_flgptn) {
-	running_task->isWaiting = true; // 自タスクを待ち状態にする
-	running_task->waitptn = waiptn;
-	running_task->waitmode = wfmode;
-	flagTable[flgid].waitQueue.push(running_task);
-	TaskYield(); // 実行権を譲る
-	*p_flgptn = running_task->waitptn;	// 解除パターンを受け取る
+
+	// すでにフラグが有効な場合の対処
+	FLGPTN currentFlags = flagTable[flgid].flgptn;
+	bool conditionMet = false;
+	if (wfmode == TWF_ANDW) {
+		conditionMet = ((currentFlags & waiptn) == waiptn);
+	}
+	else if (wfmode == TWF_ORW) {
+		conditionMet = ((currentFlags & waiptn) != 0);
+	}
+	if (conditionMet) {
+		*p_flgptn = currentFlags;
+	}
+	else {
+		running_task->isWaiting = true; // 自タスクを待ち状態にする
+		running_task->waitptn = waiptn;
+		running_task->waitmode = wfmode;
+		flagTable[flgid].waitQueue.push(running_task);
+		TaskYield(); // 実行権を譲る
+		*p_flgptn = running_task->waitptn;	// 解除パターンを受け取る
+	}
 }
 
 // ------------------------------------------
@@ -247,7 +265,6 @@ int main() {
 			WaitFlg(ID_AAA, 0x01, TWF_ORW, &resultFlag);
 			ClearFlag(ID_AAA, ~0x01);
 			std::cout << "Task 1 acquired flag: " << resultFlag << std::endl;
-			Sleep(50);
 			SetFlag(ID_AAA, 0x02);
 		}
 	});
@@ -255,7 +272,6 @@ int main() {
 	CreateTask(ID_BBB, "Task 2", []() {
 		while (true) {
 			std::cout << "Task 2 is setting flag." << std::endl;
-			Sleep(50);
 			SetFlag(ID_AAA, 0x01);
 			FLGPTN resultFlag;
 			WaitFlg(ID_AAA, 0x02, TWF_ORW, &resultFlag);
