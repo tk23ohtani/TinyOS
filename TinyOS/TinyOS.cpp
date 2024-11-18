@@ -249,7 +249,6 @@ int main() {
 			std::cout << "Task 1 acquired flag: " << resultFlag << std::endl;
 			Sleep(50);
 			SetFlag(ID_AAA, 0x02);
-			Sleep(1500); // タスク処理のウェイト
 		}
 	});
 
@@ -258,7 +257,6 @@ int main() {
 			std::cout << "Task 2 is setting flag." << std::endl;
 			Sleep(50);
 			SetFlag(ID_AAA, 0x01);
-			Sleep(1500); // タスク処理のウェイト
 			FLGPTN resultFlag;
 			WaitFlg(ID_AAA, 0x02, TWF_ORW, &resultFlag);
 			ClearFlag(ID_AAA, ~0x02);
