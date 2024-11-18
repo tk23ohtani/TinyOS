@@ -15,6 +15,7 @@ typedef ID ER;
 typedef unsigned int UINT;
 typedef UINT FLGPTN;
 typedef UINT MODE;
+typedef UINT RELTIM;
 
 #define E_OK					(0x00)	/* 00h  normal exit						*/
 
@@ -29,7 +30,9 @@ struct TaskInfo {
 	DWORD threadId;
 	std::string taskName;
 	bool isExist;
+	HANDLE excuteEvent;
 	bool isWaiting;
+	RELTIM dly_tim;
 	// --- EVENT FLAG -->
 	FLGPTN waitptn;
 	MODE waitmode;
@@ -40,6 +43,7 @@ struct TaskInfo {
 // グローバル変数
 std::vector<std::shared_ptr<TaskInfo>> tasks;
 std::queue<std::shared_ptr<TaskInfo>> readyQueue;
+std::queue<std::shared_ptr<TaskInfo>> waitTimeQueue;
 HANDLE yieldEvent;
 
 
@@ -50,6 +54,7 @@ HANDLE yieldEvent;
 enum {
 	ID_AAA,
 	ID_BBB,
+	ID_CCC,
 	/* --- */
 	ID_MAX
 };
@@ -87,6 +92,66 @@ private:
 
 
 
+
+
+std::shared_ptr<TaskInfo> running_task;
+
+// スケジューラー（ディスパッチャー）関数
+void StartDispatcher() {
+	yieldEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+
+	if (yieldEvent == nullptr) {
+		std::cerr << "Failed to create yield event." << std::endl;
+		return;
+	}
+
+	while (true) {
+
+		// 時間待ち
+		if (!waitTimeQueue.empty()) {
+			for (size_t q_len = waitTimeQueue.size(); q_len; q_len--) {
+				std::shared_ptr<TaskInfo> wai_tim_tsk = waitTimeQueue.front();
+				waitTimeQueue.pop();
+				if (!--wai_tim_tsk->dly_tim) {
+					wai_tim_tsk->isWaiting = false;
+					readyQueue.push(wai_tim_tsk);
+					std::cout << "Wakeup task: " << wai_tim_tsk->taskName << std::endl;
+				}
+				else {
+					waitTimeQueue.push(wai_tim_tsk);
+				}
+			}
+		}
+
+		// 実行可能タスクを一周回す
+		if (!readyQueue.empty()) {
+			for (size_t q_len = readyQueue.size(); q_len; q_len--) {
+				running_task = readyQueue.front();
+				readyQueue.pop();
+				if (running_task->isExist && !running_task->isWaiting) {
+					std::cout << "Dispatching: " << running_task->taskName << std::endl;
+					// タスクに実行権を渡す
+					SetEvent(running_task->excuteEvent);
+					ResetEvent(yieldEvent);
+					WaitForSingleObject(yieldEvent, INFINITE);
+					if (!running_task->isWaiting) readyQueue.push(running_task); // 再度レディーキューに追加
+				}
+			}
+		}
+
+		Sleep(500); // スケジューリングのためのウェイト
+	}
+}
+
+// タスクの実行権を譲る関数（リネーム済み）
+static void TaskYield() {
+	// 現在のタスクが他のタスクに実行権を譲る
+	SetEvent(yieldEvent);
+	WaitForSingleObject(running_task->excuteEvent, INFINITE);
+}
+
+// ------------------------------------------
+
 // ユーザー定義タスクの生成関数
 void CreateTask(int id, const std::string& name, TaskFunction taskFunction) {
 	std::shared_ptr<TaskInfo> taskInfo = std::make_shared<TaskInfo>();
@@ -94,6 +159,7 @@ void CreateTask(int id, const std::string& name, TaskFunction taskFunction) {
 	taskInfo->isExist = true;
 	taskInfo->isWaiting = false;
 	taskInfo->taskFunction = std::move(taskFunction);
+	taskInfo->excuteEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
 
 	// shared_ptr を格納するためのポインタを用意
 	auto taskInfoPtr = new std::shared_ptr<TaskInfo>(taskInfo);
@@ -108,10 +174,12 @@ void CreateTask(int id, const std::string& name, TaskFunction taskFunction) {
 		std::shared_ptr<TaskInfo>* taskInfoPtr = static_cast<std::shared_ptr<TaskInfo>*>(param);
 		std::shared_ptr<TaskInfo> taskInfo = *taskInfoPtr;
 		while (taskInfo->isExist) {
+			// レディーキューに接続する
+			readyQueue.push(taskInfo);
+			ResetEvent(taskInfo->excuteEvent);
+			WaitForSingleObject(taskInfo->excuteEvent, INFINITE);
 			// ユーザー定義のタスク関数を実行
 			taskInfo->taskFunction();
-			// 実行権を譲る
-			WaitForSingleObject(yieldEvent, INFINITE);
 		}
 		return 0;
 	},
@@ -129,58 +197,21 @@ void CreateTask(int id, const std::string& name, TaskFunction taskFunction) {
 	readyQueue.push(taskInfo); // レディーキューに追加
 }
 
-
-std::shared_ptr<TaskInfo> running_task;
-
-// スケジューラー（ディスパッチャー）関数
-void StartDispatcher() {
-	yieldEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-
-	if (yieldEvent == nullptr) {
-		std::cerr << "Failed to create yield event." << std::endl;
-		return;
-	}
-
-	while (true) {
-		if (!readyQueue.empty()) {
-			running_task = readyQueue.front();
-			readyQueue.pop();
-			if (running_task->isExist && !running_task->isWaiting) {
-
-				std::cout << "Dispatching: " << running_task->taskName << std::endl;
-
-				// タスクに実行権を渡す
-				SetEvent(yieldEvent);
-				Sleep(500); // スケジューリングのためのウェイト
-
-				if (!running_task->isWaiting) readyQueue.push(running_task); // 再度レディーキューに追加
-
-			}
-			else {
-				Sleep(500); // スケジューリングのためのウェイト
-			}
-		}
-		else {
-			Sleep(500); // スケジューリングのためのウェイト
-		}
-	}
-}
-
-// タスクの実行権を譲る関数（リネーム済み）
-void TaskYield() {
-	// 現在のタスクが他のタスクに実行権を譲る
-	ResetEvent(yieldEvent);
-	WaitForSingleObject(yieldEvent, INFINITE);
-}
-
-// ------------------------------------------
-
 void TermitTask(ID tskid) {
 	std::shared_ptr<TaskInfo> taskinfo = manager.getContext(tskid);
 	taskinfo->isExist = false;
-	TaskYield();
+	TaskYield(); // 実行権を譲る
 }
 
+
+void DelayTask(RELTIM dlytim) {
+	if (dlytim) {
+		running_task->isWaiting = true; // 自タスクを待ち状態にする
+		running_task->dly_tim = dlytim;
+		waitTimeQueue.push(running_task);
+	}
+	TaskYield(); // 実行権を譲る
+}
 
 // タスク情報構造体
 struct FlagInfo {
@@ -265,14 +296,12 @@ int main() {
 			WaitFlg(ID_AAA, 0x01, TWF_ORW, &resultFlag);
 			ClearFlag(ID_AAA, ~0x01);
 			std::cout << "Task 1 acquired flag: " << resultFlag << std::endl;
-			SetFlag(ID_AAA, 0x02);
 		}
 	});
 
 	CreateTask(ID_BBB, "Task 2", []() {
 		while (true) {
-			std::cout << "Task 2 is setting flag." << std::endl;
-			SetFlag(ID_AAA, 0x01);
+			std::cout << "Task 2 is waiting for flag." << std::endl;
 			FLGPTN resultFlag;
 			WaitFlg(ID_AAA, 0x02, TWF_ORW, &resultFlag);
 			ClearFlag(ID_AAA, ~0x02);
@@ -280,13 +309,26 @@ int main() {
 		}
 	});
 
+	CreateTask(ID_CCC, "Task 3", []() {
+		while (true) {
+			std::cout << "Task 3 is setting flag." << std::endl;
+			DelayTask(10);
+			SetFlag(ID_AAA, 0x02);
+			std::cout << "Task 3 is setting flag." << std::endl;
+			DelayTask(10);
+			SetFlag(ID_AAA, 0x01);
+		}
+	});
+
 	// スケジューラーを開始
+	SetEvent(yieldEvent);
 	StartDispatcher();
 
 	// クリーンアップ
 	for (auto& task : tasks) {
 		WaitForSingleObject(task->threadHandle, INFINITE);
 		CloseHandle(task->threadHandle);
+		CloseHandle(task->excuteEvent);
 	}
 	CloseHandle(yieldEvent);
 
