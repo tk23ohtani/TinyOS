@@ -6,6 +6,19 @@
 #include <unordered_map>
 #include <memory>
 #include <stdexcept>
+#include <queue>
+
+// ------------------------------------------
+
+typedef int ID;
+typedef ID ER;
+typedef unsigned int UINT;
+typedef UINT FLGPTN;
+typedef UINT MODE;
+
+#define E_OK					(0x00)	/* 00h  normal exit						*/
+
+// ------------------------------------------
 
 // タスクの関数プロトタイプ
 using TaskFunction = std::function<void()>;
@@ -16,11 +29,17 @@ struct TaskInfo {
 	DWORD threadId;
 	std::string taskName;
 	bool isExist;
+	bool isWaiting;
+	// --- EVENT FLAG -->
+	FLGPTN waitptn;
+	MODE waitmode;
+	// <-- EVENT FLAG ---
 	TaskFunction taskFunction;
 };
 
 // グローバル変数
 std::vector<std::shared_ptr<TaskInfo>> tasks;
+std::queue<std::shared_ptr<TaskInfo>> readyQueue;
 HANDLE yieldEvent;
 
 
@@ -73,6 +92,7 @@ void CreateTask(int id, const std::string& name, TaskFunction taskFunction) {
 	std::shared_ptr<TaskInfo> taskInfo = std::make_shared<TaskInfo>();
 	taskInfo->taskName = name;
 	taskInfo->isExist = true;
+	taskInfo->isWaiting = false;
 	taskInfo->taskFunction = std::move(taskFunction);
 
 	// shared_ptr を格納するためのポインタを用意
@@ -106,7 +126,11 @@ void CreateTask(int id, const std::string& name, TaskFunction taskFunction) {
 	}
 
 	tasks.push_back(taskInfo);
+	readyQueue.push(taskInfo); // レディーキューに追加
 }
+
+
+std::shared_ptr<TaskInfo> running_task;
 
 // スケジューラー（ディスパッチャー）関数
 void StartDispatcher() {
@@ -118,12 +142,18 @@ void StartDispatcher() {
 	}
 
 	while (true) {
-		for (auto& task : tasks) {
-			if (task->isExist) {
+		if (!readyQueue.empty()) {
+			running_task = readyQueue.front();
+			readyQueue.pop();
+			if (running_task->isExist && !running_task->isWaiting) {
+
 				// タスクに実行権を渡す
 				SetEvent(yieldEvent);
-				std::cout << "Dispatching: " << task->taskName << std::endl;
+				std::cout << "Dispatching: " << running_task->taskName << std::endl;
 				Sleep(500); // スケジューリングのためのウェイト
+
+				if (!running_task->isWaiting) readyQueue.push(running_task); // 再度レディーキューに追加
+
 			}
 		}
 	}
@@ -138,57 +168,65 @@ void TaskYield() {
 
 // ------------------------------------------
 
-typedef int ID;
-typedef ID ER;
-typedef unsigned int UINT;
-typedef UINT FLGPTN;
-typedef UINT MODE;
-
-#define E_OK					(0x00)	/* 00h  normal exit						*/
-
 void TermitTask(ID tskid) {
 	std::shared_ptr<TaskInfo> taskinfo = manager.getContext(tskid);
 	taskinfo->isExist = false;
 	TaskYield();
 }
 
+
+// タスク情報構造体
+struct FlagInfo {
+	FLGPTN flgptn;
+	std::queue<std::shared_ptr<TaskInfo>> waitQueue;
+};
+
 // フラグ操作モードの定義
 #define TWF_ANDW    0x00u
 #define TWF_ORW     0x01u
 
-std::unordered_map<ID, FLGPTN> flagTable; // フラグ管理用マップ
+std::unordered_map<ID, FlagInfo> flagTable; // フラグ管理用マップ
 
 void SetFlag(ID flgid, FLGPTN setptn) {
-	flagTable[flgid] |= setptn; // フラグの設定
+	FLGPTN currentFlags = (flagTable[flgid].flgptn |= setptn); // フラグの設定
+
+	flagTable[flgid].waitQueue;
+	if (!flagTable[flgid].waitQueue.empty()) {
+		std::shared_ptr<TaskInfo> task = flagTable[flgid].waitQueue.front();
+		flagTable[flgid].waitQueue.pop();
+		if (task->isExist && task->isWaiting) {
+			bool conditionMet = false;
+			if (task->waitmode == TWF_ANDW) {
+				conditionMet = ((currentFlags & task->waitptn) == task->waitptn);
+			}
+			else if (task->waitmode == TWF_ORW) {
+				conditionMet = ((currentFlags & task->waitptn) != 0);
+			}
+			if (conditionMet) {
+				task->isWaiting = false;
+				readyQueue.push(task); // 再度レディーキューに追加
+				task->waitptn = currentFlags;	// 本当は使い回しは良くないが、待ちパターンに解除パターンを入れて戻す
+				// break;
+			}
+		}
+		if (!task->isWaiting) flagTable[flgid].waitQueue.push(task);
+	}
+
 	TaskYield(); // 実行権を譲る
-	SetEvent(yieldEvent); // 待機中のタスクを再開
 }
 
 void ClearFlag(ID flgid, FLGPTN clearptn) {
-	flagTable[flgid] &= ~clearptn; // フラグのクリア
+	flagTable[flgid].flgptn &= clearptn; // フラグのクリア
 	TaskYield(); // 実行権を譲る
 }
 
 void WaitFlg(ID flgid, FLGPTN waiptn, MODE wfmode, FLGPTN *p_flgptn) {
-	while (true) {
-		FLGPTN currentFlags = flagTable[flgid];
-
-		bool conditionMet = false;
-		if (wfmode == TWF_ANDW) {
-			conditionMet = ((currentFlags & waiptn) == waiptn);
-		}
-		else if (wfmode == TWF_ORW) {
-			conditionMet = ((currentFlags & waiptn) != 0);
-		}
-
-		if (conditionMet) {
-			*p_flgptn = currentFlags;
-			break;
-		}
-
-		TaskYield(); // 実行権を譲る
-		Sleep(10); // ウェイトを入れて他のタスクに実行権を譲る
-	}
+	running_task->isWaiting = true; // 自タスクを待ち状態にする
+	running_task->waitptn = waiptn;
+	running_task->waitmode = wfmode;
+	flagTable[flgid].waitQueue.push(running_task);
+	TaskYield(); // 実行権を譲る
+	*p_flgptn = running_task->waitptn;	// 解除パターンを受け取る
 }
 
 // ------------------------------------------
@@ -202,6 +240,8 @@ int main() {
 			WaitFlg(ID_AAA, 0x01, TWF_ORW, &resultFlag);
 			ClearFlag(ID_AAA, ~0x01);
 			std::cout << "Task 1 acquired flag: " << resultFlag << std::endl;
+			SetFlag(ID_AAA, 0x02);
+			Sleep(1500); // タスク処理のウェイト
 		}
 	});
 
@@ -209,7 +249,10 @@ int main() {
 		while (true) {
 			std::cout << "Task 2 is setting flag." << std::endl;
 			SetFlag(ID_AAA, 0x01);
-			Sleep(150); // タスク処理のウェイト
+			Sleep(1500); // タスク処理のウェイト
+			FLGPTN resultFlag;
+			WaitFlg(ID_AAA, 0x02, TWF_ORW, &resultFlag);
+			ClearFlag(ID_AAA, ~0x02);
 		}
 	});
 
