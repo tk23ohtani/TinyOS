@@ -8,22 +8,7 @@
 #include <stdexcept>
 #include <queue>
 
-// ------------------------------------------
-
-typedef int ID;
-typedef ID ER;
-typedef unsigned int UINT;
-typedef unsigned long UW;
-typedef char VB;
-typedef void *VP;
-typedef VP VP_INT;
-typedef UINT FLGPTN;
-typedef UINT MODE;
-typedef UW RELTIM;
-
-#define E_OK					(0x00)	/* 00h  normal exit						*/
-
-// ------------------------------------------
+#include "kernel.h"
 
 // タスクの関数プロトタイプ
 using TaskFunction = std::function<void()>;
@@ -292,12 +277,6 @@ void WaitFlg(ID flgid, FLGPTN waiptn, MODE wfmode, FLGPTN *p_flgptn) {
 	}
 }
 
-typedef struct t_rflg {
-	ID          wtskid;
-	FLGPTN      flgptn;
-	VB    const *name;
-} T_RFLG;
-
 void ReferenceFlg(ID flgid, T_RFLG *pk_rflg) {
 	if (pk_rflg) {
 		pk_rflg->flgptn = flagTable[flgid].flgptn;
@@ -314,12 +293,7 @@ struct DtqInfo {
 std::unordered_map<ID, DtqInfo> dataQueueTable; // データキュー管理用マップ
 
 
-typedef struct t_rdtq {
-	ID          stskid;
-	ID          rtskid;
-	UINT        sdtqcnt;
-	VB    const *name;
-} T_RDTQ;
+
 
 void pSendDataQueue(ID dtqid, VP_INT data) {
 	dataQueueTable[dtqid].data = data;
@@ -356,7 +330,11 @@ void ReceiveDataQueue(ID dtqid, VP_INT *p_data) {
 	}
 }
 
-void ReferenceDataQueue(ID dtqid, T_RDTQ *pk_rdtq);
+void ReferenceDataQueue(ID dtqid, T_RDTQ *pk_rdtq) {
+	if (pk_rdtq) {
+		pk_rdtq->sdtqcnt = dataQueueTable[dtqid].count;
+	}
+}
 
 // ------------------------------------------
 
