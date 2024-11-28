@@ -15,7 +15,7 @@ To get started with TinyOS, follow these steps:
 
 1. Clone the repository:
     ```sh
-    git clone https://github.com/yourusername/TinyOS.git
+    git clone https://github.com/tk23ohtani/TinyOS.git
     ```
 2. Navigate to the project directory:
     ```sh
@@ -28,7 +28,7 @@ To get started with TinyOS, follow these steps:
 
 ## Documentation
 
-For detailed documentation, please refer to the [Wiki](https://github.com/yourusername/TinyOS/wiki).
+For detailed documentation, please refer to the [Wiki](https://github.com/tk23ohtani/TinyOS/wiki).
 
 ## Contributing
 
