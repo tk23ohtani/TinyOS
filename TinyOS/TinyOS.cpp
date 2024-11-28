@@ -145,6 +145,21 @@ static void TaskYield() {
 
 // ------------------------------------------
 
+static DWORD WINAPI TaskThreadFunction(void* param) {
+	// 生ポインタを shared_ptr に再構築（ちょっとここ難しい！分からん！後で分かるんかな？）
+	std::shared_ptr<TaskInfo>* taskInfoPtr = static_cast<std::shared_ptr<TaskInfo>*>(param);
+	std::shared_ptr<TaskInfo> taskInfo = *taskInfoPtr;
+	while (taskInfo->isExist) {
+		// レディーキューに接続する
+		readyQueue.push(taskInfo);
+		ResetEvent(taskInfo->excuteEvent);
+		WaitForSingleObject(taskInfo->excuteEvent, INFINITE);
+		// ユーザー定義のタスク関数を実行
+		taskInfo->taskFunction();
+	}
+	return 0;
+}
+
 // ユーザー定義タスクの生成関数
 void CreateTask(int id, const std::string& name, TaskFunction taskFunction) {
 	std::shared_ptr<TaskInfo> taskInfo = std::make_shared<TaskInfo>();
@@ -162,20 +177,7 @@ void CreateTask(int id, const std::string& name, TaskFunction taskFunction) {
 	taskInfo->threadHandle = CreateThread(
 		nullptr,
 		0,
-		[](LPVOID param) -> DWORD {
-		// 生ポインタを shared_ptr に再構築（ちょっとここ難しい！分からん！後で分かるんかな？）
-		std::shared_ptr<TaskInfo>* taskInfoPtr = static_cast<std::shared_ptr<TaskInfo>*>(param);
-		std::shared_ptr<TaskInfo> taskInfo = *taskInfoPtr;
-		while (taskInfo->isExist) {
-			// レディーキューに接続する
-			readyQueue.push(taskInfo);
-			ResetEvent(taskInfo->excuteEvent);
-			WaitForSingleObject(taskInfo->excuteEvent, INFINITE);
-			// ユーザー定義のタスク関数を実行
-			taskInfo->taskFunction();
-		}
-		return 0;
-	},
+		TaskThreadFunction,
 		taskInfoPtr,
 		0,
 		&taskInfo->threadId
