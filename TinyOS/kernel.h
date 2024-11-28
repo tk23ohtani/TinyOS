@@ -1,7 +1,7 @@
 #ifndef DATA_QUEUE_H
 #define DATA_QUEUE_H
 
-// ŠÖ”ƒvƒƒgƒ^ƒCƒviCƒŠƒ“ƒNŒ`®‚ÅŒöŠJj
+// é–¢æ•°ãƒ—ãƒ­ãƒˆã‚¿ã‚¤ãƒ—ï¼ˆCãƒªãƒ³ã‚¯å½¢å¼ã§å…¬é–‹ï¼‰
 #ifdef __cplusplus
 extern "C" {
 #endif

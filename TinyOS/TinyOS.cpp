@@ -145,6 +145,7 @@ static void TaskYield() {
 
 // ------------------------------------------
 
+// なぜかラムダ関数が使えないので、スレッド関数を定義
 static DWORD WINAPI TaskThreadFunction(void* param) {
 	// 生ポインタを shared_ptr に再構築（ちょっとここ難しい！分からん！後で分かるんかな？）
 	std::shared_ptr<TaskInfo>* taskInfoPtr = static_cast<std::shared_ptr<TaskInfo>*>(param);
