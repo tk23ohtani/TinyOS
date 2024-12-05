@@ -49,6 +49,8 @@ enum {
 	ID_CCC,
 	ID_DDD,
 	/* --- */
+	ID_MMM,
+	/* --- */
 	ID_MAX
 };
 
@@ -193,12 +195,34 @@ void CreateTask(int id, const std::string& name, TaskFunction taskFunction) {
 	readyQueue.push(taskInfo); // レディーキューに追加
 }
 
+void ViewTaskInfo() {
+	std::cout << "Task Name\tTask ID\t\tTask waiting" << std::endl;
+	std::cout << "----------------------------------------" << std::endl;
+	for (auto& task : tasks) {
+		std::cout << task->taskName << "\t" << task->threadId << "\t\t" << (task->isWaiting ? "Yes" : "No") << std::endl;
+	}
+	std::cout << "----------------------------------------" << std::endl;
+}
+
+// ------------------------------------------
+
 void TermitTask(ID tskid) {
 	std::shared_ptr<TaskInfo> taskinfo = manager.getContext(tskid);
 	taskinfo->isExist = false;
 	TaskYield(); // 実行権を譲る
 }
 
+void SleepTask() {
+	running_task->isWaiting = true;
+	TaskYield(); // 実行権を譲る
+}
+
+void WakeupTask(ID tskid) {
+	std::shared_ptr<TaskInfo> taskinfo = manager.getContext(tskid);
+	taskinfo->isWaiting = false;
+	readyQueue.push(taskinfo); // レディーキューに追加
+	TaskYield(); // 実行権を譲る
+}
 
 void DelayTask(RELTIM dlytim) {
 	if (dlytim) {
@@ -376,15 +400,31 @@ int main() {
 
 	CreateTask(ID_DDD, "Task 4", []() {
 		while (true) {
-			std::cout << "Task 4 is setting flag." << std::endl;
+			std::cout << "Task 4 is sleeping..." << std::endl;
+			SleepTask();
+			std::cout << "Task 4 is awake!" << std::endl;
+		}
+	});
+
+	CreateTask(ID_MMM, "Task Master", []() {
+		while (true) {
+			std::cout << "Task Master is setting flag." << std::endl;
+			ViewTaskInfo();
 			DelayTask(10);
 			SetFlag(ID_AAA, 0x02);
-			std::cout << "Task 4 is setting flag." << std::endl;
+			std::cout << "Task Master is setting flag." << std::endl;
+			ViewTaskInfo();
 			DelayTask(10);
 			SetFlag(ID_AAA, 0x01);
-			std::cout << "Task 4 is sending data." << std::endl;
+			std::cout << "Task Master is sending data." << std::endl;
+			ViewTaskInfo();
 			DelayTask(10);
 			pSendDataQueue(ID_AAA, (VP_INT)123);
+			ViewTaskInfo();
+			DelayTask(10);
+			WakeupTask(ID_DDD);
+			ViewTaskInfo();
+			DelayTask(10);
 		}
 	});
 

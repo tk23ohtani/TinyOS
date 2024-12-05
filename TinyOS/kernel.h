@@ -33,6 +33,8 @@ typedef struct t_rdtq {
 } T_RDTQ;
 
 void TermitTask(ID tskid);
+void SleepTask();
+void WakeupTask(ID tskid);
 void DelayTask(RELTIM dlytim);
 
 void SetFlag(ID flgid, FLGPTN setptn);
