@@ -19,6 +19,10 @@ typedef UW RELTIM;
 
 #define E_OK					(0x00)	/* 00h  normal exit						*/
 
+// フラグ操作モードの定義
+#define TWF_ANDW    0x00u
+#define TWF_ORW     0x01u
+
 typedef struct t_rflg {
 	ID          wtskid;
 	FLGPTN      flgptn;

@@ -239,10 +239,6 @@ struct FlagInfo {
 	std::queue<std::shared_ptr<TaskInfo>> waitQueue;
 };
 
-// フラグ操作モードの定義
-#define TWF_ANDW    0x00u
-#define TWF_ORW     0x01u
-
 std::unordered_map<ID, FlagInfo> flagTable; // フラグ管理用マップ
 
 void SetFlag(ID flgid, FLGPTN setptn) {
