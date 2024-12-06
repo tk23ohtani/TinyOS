@@ -2,7 +2,7 @@
 CXX = C:\MinGW\bin\g++.exe
 
 # Target executable
-TARGET = Debug/TinyOS.exe
+TARGET = TinyOS.exe
 
 # Source files
 SRCS = TinyOS/TinyOS.cpp
