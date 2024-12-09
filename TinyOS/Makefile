@@ -5,7 +5,7 @@ CXX = C:\MinGW\bin\g++.exe
 TARGET = Debug/TinyOS.exe
 
 # Source files
-SRCS = TinyOS/TinyOS.cpp
+SRCS = TinyOS/TinyOS.cpp TinyOS/userConfig.cpp
 
 # Compiler flags
 CXXFLAGS = -Wall -g -mwindows

@@ -36,6 +36,7 @@ typedef struct t_rdtq {
 	VB    const *name;
 } T_RDTQ;
 
+void ActionTask(ID tskid);
 void TermitTask(ID tskid);
 void SleepTask();
 void WakeupTask(ID tskid);
@@ -49,6 +50,9 @@ void ReferenceFlg(ID flgid, T_RFLG *pk_rflg);
 void pSendDataQueue(ID dtqid, VP_INT data);
 void ReceiveDataQueue(ID dtqid, VP_INT *p_data);
 void ReferenceDataQueue(ID dtqid, T_RDTQ *pk_rdtq);
+
+/* for DEBUG */
+void debug_printf(const char* format, ...);
 
 #ifdef __cplusplus
 }
