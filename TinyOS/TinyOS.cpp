@@ -119,6 +119,7 @@ void StartDispatcher() {
 				// タスクに実行権を渡す
 				SetEvent(running_task->excuteEvent);
 				ResetEvent(yieldEvent);
+				Sleep(1);
 				WaitForSingleObject(yieldEvent, INFINITE);
 				if (!running_task->isWaiting) readyQueue.push(running_task); // 再度レディーキューに追加
 			}
