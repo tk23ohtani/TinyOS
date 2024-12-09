@@ -111,18 +111,16 @@ void StartDispatcher() {
 
 	// 実行可能タスクを一周回す
 	if (!readyQueue.empty()) {	// TODO: レディーキューが空になるまで繰り返す
-		for (size_t q_len = readyQueue.size(); q_len; q_len--) {
-			running_task = readyQueue.front();
-			readyQueue.pop();
-			if (running_task->isExist && !running_task->isWaiting) {
-				debug_printf("Dispatching: %s\n", running_task->taskName.c_str());
-				// タスクに実行権を渡す
-				SetEvent(running_task->excuteEvent);
-				ResetEvent(yieldEvent);
-				Sleep(1);
-				WaitForSingleObject(yieldEvent, INFINITE);
-				if (!running_task->isWaiting) readyQueue.push(running_task); // 再度レディーキューに追加
-			}
+		running_task = readyQueue.front();
+		readyQueue.pop();
+		if (running_task->isExist && !running_task->isWaiting) {
+			debug_printf("Dispatching: %s\n", running_task->taskName.c_str());
+			// タスクに実行権を渡す
+			SetEvent(running_task->excuteEvent);
+			ResetEvent(yieldEvent);
+			Sleep(1);
+			WaitForSingleObject(yieldEvent, INFINITE);
+			if (!running_task->isWaiting) readyQueue.push(running_task); // 再度レディーキューに追加
 		}
 	}
 }
