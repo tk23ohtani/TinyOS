@@ -91,50 +91,38 @@ private:
 
 std::shared_ptr<TaskInfo> running_task;
 
-// スケジューラー（ディスパッチャー）関数
+// スケジューラー（ディスパッチャー）関数、一定間隔（Tick時間）で呼ばれることが前提
 void StartDispatcher() {
-	yieldEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-
-	if (yieldEvent == nullptr) {
-		std::cerr << "Failed to create yield event." << std::endl;
-		return;
+	// 時間待ち
+	if (!waitTimeQueue.empty()) {
+		for (size_t q_len = waitTimeQueue.size(); q_len; q_len--) {
+			std::shared_ptr<TaskInfo> wai_tim_tsk = waitTimeQueue.front();
+			waitTimeQueue.pop();
+			if (!--wai_tim_tsk->dly_tim) {
+				wai_tim_tsk->isWaiting = false;
+				readyQueue.push(wai_tim_tsk);
+				std::cout << "Wakeup task: " << wai_tim_tsk->taskName << std::endl;
+			}
+			else {
+				waitTimeQueue.push(wai_tim_tsk);
+			}
+		}
 	}
 
-	while (true) {
-
-		// 時間待ち
-		if (!waitTimeQueue.empty()) {
-			for (size_t q_len = waitTimeQueue.size(); q_len; q_len--) {
-				std::shared_ptr<TaskInfo> wai_tim_tsk = waitTimeQueue.front();
-				waitTimeQueue.pop();
-				if (!--wai_tim_tsk->dly_tim) {
-					wai_tim_tsk->isWaiting = false;
-					readyQueue.push(wai_tim_tsk);
-					std::cout << "Wakeup task: " << wai_tim_tsk->taskName << std::endl;
-				}
-				else {
-					waitTimeQueue.push(wai_tim_tsk);
-				}
+	// 実行可能タスクを一周回す
+	if (!readyQueue.empty()) {	// TODO: レディーキューが空になるまで繰り返す
+		for (size_t q_len = readyQueue.size(); q_len; q_len--) {
+			running_task = readyQueue.front();
+			readyQueue.pop();
+			if (running_task->isExist && !running_task->isWaiting) {
+				std::cout << "Dispatching: " << running_task->taskName << std::endl;
+				// タスクに実行権を渡す
+				SetEvent(running_task->excuteEvent);
+				ResetEvent(yieldEvent);
+				WaitForSingleObject(yieldEvent, INFINITE);
+				if (!running_task->isWaiting) readyQueue.push(running_task); // 再度レディーキューに追加
 			}
 		}
-
-		// 実行可能タスクを一周回す
-		if (!readyQueue.empty()) {
-			for (size_t q_len = readyQueue.size(); q_len; q_len--) {
-				running_task = readyQueue.front();
-				readyQueue.pop();
-				if (running_task->isExist && !running_task->isWaiting) {
-					std::cout << "Dispatching: " << running_task->taskName << std::endl;
-					// タスクに実行権を渡す
-					SetEvent(running_task->excuteEvent);
-					ResetEvent(yieldEvent);
-					WaitForSingleObject(yieldEvent, INFINITE);
-					if (!running_task->isWaiting) readyQueue.push(running_task); // 再度レディーキューに追加
-				}
-			}
-		}
-
-		Sleep(500); // スケジューリングのためのウェイト
 	}
 }
 
@@ -361,7 +349,7 @@ void ReferenceDataQueue(ID dtqid, T_RDTQ *pk_rdtq) {
 
 // ------------------------------------------
 
-int main() {
+int setupTinyOS() {
 	// ユーザー定義タスクを作成
 	CreateTask(ID_AAA, "Task 1", []() {
 		while (true) {
@@ -425,9 +413,16 @@ int main() {
 	});
 
 	// スケジューラーを開始
+	yieldEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+	if (yieldEvent == nullptr) {
+		std::cerr << "Failed to setup TinyOS." << std::endl;
+		return -1;
+	}
 	SetEvent(yieldEvent);
-	StartDispatcher();
+	return 0;
+}
 
+int cleanupTyinyOS() {
 	// クリーンアップ
 	for (auto& task : tasks) {
 		WaitForSingleObject(task->threadHandle, INFINITE);
@@ -435,6 +430,23 @@ int main() {
 		CloseHandle(task->excuteEvent);
 	}
 	CloseHandle(yieldEvent);
+	return 0;
+}
+
+int main() {
+
+	if (setupTinyOS()) {
+		std::cerr << "Failed to setup TinyOS." << std::endl;
+		return -1;
+	}
+	else {
+		while (true) {
+			StartDispatcher();
+			Sleep(500); // スケジューリングのためのウェイト
+		}
+	}
+
+	cleanupTyinyOS();
 
 	return 0;
 }
