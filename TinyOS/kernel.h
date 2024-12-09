@@ -51,6 +51,10 @@ void pSendDataQueue(ID dtqid, VP_INT data);
 void ReceiveDataQueue(ID dtqid, VP_INT *p_data);
 void ReferenceDataQueue(ID dtqid, T_RDTQ *pk_rdtq);
 
+bool isTaskExist();
+// タスクを無限ループで実行する場合はこのマクロを使用すること
+#define TASK_FOREVER while(isTaskExist())
+
 /* for DEBUG */
 void debug_printf(const char* format, ...);
 
