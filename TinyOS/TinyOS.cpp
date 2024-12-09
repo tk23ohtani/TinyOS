@@ -349,7 +349,7 @@ void ReferenceDataQueue(ID dtqid, T_RDTQ *pk_rdtq) {
 
 // ------------------------------------------
 
-int setupTinyOS() {
+int startupTinyOS() {
 	// ユーザー定義タスクを作成
 	CreateTask(ID_AAA, "Task 1", []() {
 		while (true) {
@@ -422,7 +422,7 @@ int setupTinyOS() {
 	return 0;
 }
 
-int cleanupTyinyOS() {
+int cleanupTinyOS() {
 	// クリーンアップ
 	for (auto& task : tasks) {
 		WaitForSingleObject(task->threadHandle, INFINITE);
@@ -435,7 +435,7 @@ int cleanupTyinyOS() {
 
 int main() {
 
-	if (setupTinyOS()) {
+	if (startupTinyOS()) {
 		std::cerr << "Failed to setup TinyOS." << std::endl;
 		return -1;
 	}
@@ -446,7 +446,7 @@ int main() {
 		}
 	}
 
-	cleanupTyinyOS();
+	cleanupTinyOS();
 
 	return 0;
 }
