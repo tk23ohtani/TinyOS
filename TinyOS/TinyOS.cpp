@@ -10,6 +10,17 @@
 
 #include "kernel.h"
 
+void debug_printf(const char* format, ...)
+{
+    char buffer[1024];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    OutputDebugStringA(buffer);
+}
+
 // タスクの関数プロトタイプ
 using TaskFunction = std::function<void()>;
 
@@ -101,7 +112,7 @@ void StartDispatcher() {
 			if (!--wai_tim_tsk->dly_tim) {
 				wai_tim_tsk->isWaiting = false;
 				readyQueue.push(wai_tim_tsk);
-				std::cout << "Wakeup task: " << wai_tim_tsk->taskName << std::endl;
+				debug_printf("Wakeup task: %s\n", wai_tim_tsk->taskName.c_str());
 			}
 			else {
 				waitTimeQueue.push(wai_tim_tsk);
@@ -115,7 +126,7 @@ void StartDispatcher() {
 			running_task = readyQueue.front();
 			readyQueue.pop();
 			if (running_task->isExist && !running_task->isWaiting) {
-				std::cout << "Dispatching: " << running_task->taskName << std::endl;
+				debug_printf("Dispatching: %s\n", running_task->taskName.c_str());
 				// タスクに実行権を渡す
 				SetEvent(running_task->excuteEvent);
 				ResetEvent(yieldEvent);
@@ -146,6 +157,7 @@ static DWORD WINAPI TaskThreadFunction(void* param) {
 		ResetEvent(taskInfo->excuteEvent);
 		WaitForSingleObject(taskInfo->excuteEvent, INFINITE);
 		// ユーザー定義のタスク関数を実行
+		debug_printf("Task %s is running\n", taskInfo->taskName.c_str());
 		taskInfo->taskFunction();
 	}
 	return 0;
@@ -175,7 +187,7 @@ void CreateTask(int id, const std::string& name, TaskFunction taskFunction) {
 		);
 
 	if (taskInfo->threadHandle == nullptr) {
-		std::cerr << "Failed to create thread for " << name << std::endl;
+		debug_printf("Failed to create thread for %s\n", name.c_str());
 		return;
 	}
 
@@ -184,12 +196,12 @@ void CreateTask(int id, const std::string& name, TaskFunction taskFunction) {
 }
 
 void ViewTaskInfo() {
-	std::cout << "Task Name\tTask ID\t\tTask waiting" << std::endl;
-	std::cout << "----------------------------------------" << std::endl;
+	debug_printf("Task Name\tTask ID\t\tTask waiting\n");
+	debug_printf("----------------------------------------\n");
 	for (auto& task : tasks) {
-		std::cout << task->taskName << "\t" << task->threadId << "\t\t" << (task->isWaiting ? "Yes" : "No") << std::endl;
+		debug_printf("%s\t%d\t\t%s\n", task->taskName.c_str(), task->threadId, (task->isWaiting ? "Yes" : "No"));
 	}
-	std::cout << "----------------------------------------" << std::endl;
+	debug_printf("----------------------------------------\n");
 }
 
 // ------------------------------------------
@@ -232,7 +244,7 @@ std::unordered_map<ID, FlagInfo> flagTable; // フラグ管理用マップ
 void SetFlag(ID flgid, FLGPTN setptn) {
 	FLGPTN currentFlags = (flagTable[flgid].flgptn |= setptn); // フラグの設定
 
-	std::cout << "Set Flag 1 acquired flag: " << currentFlags << std::endl;
+	debug_printf("Set Flag 1 acquired flag: %d\n", currentFlags);
 
 	if (!flagTable[flgid].waitQueue.empty()) {
 		std::shared_ptr<TaskInfo> task = flagTable[flgid].waitQueue.front();
@@ -246,7 +258,7 @@ void SetFlag(ID flgid, FLGPTN setptn) {
 				conditionMet = ((currentFlags & task->waitptn) != 0);
 			}
 			if (conditionMet) {
-				std::cout << "Resumu Flag 1 task: " << task->taskName << std::endl;
+				debug_printf("Resumu Flag 1 task: %s\n", task->taskName.c_str());
 				task->isWaiting = false;
 				readyQueue.push(task); // 再度レディーキューに追加
 				task->waitptn = currentFlags;	// 本当は使い回しは良くないが、待ちパターンに解除パターンを入れて戻す
@@ -310,13 +322,13 @@ void pSendDataQueue(ID dtqid, VP_INT data) {
 	dataQueueTable[dtqid].data = data;
 	++dataQueueTable[dtqid].count;
 
-	std::cout << "Send DataQueue data: " << data << std::endl;
+	debug_printf("Send DataQueue data: %d\n", data);
 
 	if (!dataQueueTable[dtqid].waitQueue.empty()) {
 		std::shared_ptr<TaskInfo> task = dataQueueTable[dtqid].waitQueue.front();
 		dataQueueTable[dtqid].waitQueue.pop();
 		if (task->isExist && task->isWaiting) {
-			std::cout << "Send DataQueue task: " << task->taskName << std::endl;
+			debug_printf("Send DataQueue task: %s\n", task->taskName.c_str());
 			task->receptData = dataQueueTable[dtqid].data;
 			--dataQueueTable[dtqid].count;
 			task->isWaiting = false;
@@ -353,54 +365,54 @@ int startupTinyOS() {
 	// ユーザー定義タスクを作成
 	CreateTask(ID_AAA, "Task 1", []() {
 		while (true) {
-			std::cout << "Task 1 is waiting for flag." << std::endl;
+			debug_printf("Task 1 is waiting for flag.\n");
 			FLGPTN resultFlag;
 			WaitFlg(ID_AAA, 0x01, TWF_ORW, &resultFlag);
 			ClearFlag(ID_AAA, ~0x01);
-			std::cout << "Task 1 acquired flag: " << resultFlag << std::endl;
+			debug_printf("Task 1 acquired flag: %d\n", resultFlag);
 		}
 	});
 
 	CreateTask(ID_BBB, "Task 2", []() {
 		while (true) {
-			std::cout << "Task 2 is waiting for flag." << std::endl;
+			debug_printf("Task 2 is waiting for flag.\n");
 			FLGPTN resultFlag;
 			WaitFlg(ID_AAA, 0x02, TWF_ORW, &resultFlag);
 			ClearFlag(ID_AAA, ~0x02);
-			std::cout << "Task 2 acquired flag: " << resultFlag << std::endl;
+			debug_printf("Task 2 acquired flag: %d\n", resultFlag);
 		}
 	});
 
 	CreateTask(ID_CCC, "Task 3", []() {
 		while (true) {
-			std::cout << "Task 3 is waiting for dtq." << std::endl;
+			debug_printf("Task 3 is waiting for dtq.\n");
 			VP_INT dtq_data;
 			int data;
 			ReceiveDataQueue(ID_AAA, &dtq_data);
 			data = (int)dtq_data;
-			std::cout << "Task 3 recept data: " << data << std::endl;
+			debug_printf("Task 3 recept data: %d\n", data);
 		}
 	});
 
 	CreateTask(ID_DDD, "Task 4", []() {
 		while (true) {
-			std::cout << "Task 4 is sleeping..." << std::endl;
+			debug_printf("Task 4 is sleeping...\n");
 			SleepTask();
-			std::cout << "Task 4 is awake!" << std::endl;
+			debug_printf("Task 4 is awake!\n");
 		}
 	});
 
 	CreateTask(ID_MMM, "Task Master", []() {
 		while (true) {
-			std::cout << "Task Master is setting flag." << std::endl;
+			debug_printf("Task Master is setting flag.\n");
 			ViewTaskInfo();
 			DelayTask(10);
 			SetFlag(ID_AAA, 0x02);
-			std::cout << "Task Master is setting flag." << std::endl;
+			debug_printf("Task Master is setting flag.\n");
 			ViewTaskInfo();
 			DelayTask(10);
 			SetFlag(ID_AAA, 0x01);
-			std::cout << "Task Master is sending data." << std::endl;
+			debug_printf("Task Master is sending data.\n");
 			ViewTaskInfo();
 			DelayTask(10);
 			pSendDataQueue(ID_AAA, (VP_INT)123);
@@ -415,7 +427,7 @@ int startupTinyOS() {
 	// スケジューラーを開始
 	yieldEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
 	if (yieldEvent == nullptr) {
-		std::cerr << "Failed to setup TinyOS." << std::endl;
+		debug_printf("Failed to setup TinyOS.\n");
 		return -1;
 	}
 	SetEvent(yieldEvent);
@@ -436,7 +448,7 @@ int cleanupTinyOS() {
 int main() {
 
 	if (startupTinyOS()) {
-		std::cerr << "Failed to setup TinyOS." << std::endl;
+		debug_printf("Failed to setup TinyOS.\n");
 		return -1;
 	}
 	else {
