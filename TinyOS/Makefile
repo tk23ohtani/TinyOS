@@ -8,7 +8,7 @@ TARGET = Debug/TinyOS.exe
 SRCS = TinyOS/TinyOS.cpp
 
 # Compiler flags
-CXXFLAGS = -Wall -g
+CXXFLAGS = -Wall -g -mwindows
 
 # Build target
 $(TARGET): $(SRCS)

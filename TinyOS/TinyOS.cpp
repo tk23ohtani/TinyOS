@@ -163,12 +163,30 @@ static DWORD WINAPI TaskThreadFunction(void* param) {
 	return 0;
 }
 
+static size_t task_counter = 0;
+
+static void ActivateTask(std::shared_ptr<TaskInfo> taskinfo) {
+	if (taskinfo->isExist) {
+		if (taskinfo->isWaiting) {
+			taskinfo->isWaiting = false;
+			readyQueue.push(taskinfo); // レディーキューに追加
+		}
+	}
+}
+
+static void DeleteTask(std::shared_ptr<TaskInfo> taskinfo) {
+	if (taskinfo->isExist) {
+		taskinfo->isExist = false;
+		task_counter--;
+	}
+}
+
 // ユーザー定義タスクの生成関数
 void CreateTask(int id, const std::string& name, TaskFunction taskFunction) {
 	std::shared_ptr<TaskInfo> taskInfo = std::make_shared<TaskInfo>();
 	taskInfo->taskName = name;
 	taskInfo->isExist = true;
-	taskInfo->isWaiting = false;
+	taskInfo->isWaiting = true;
 	taskInfo->taskFunction = std::move(taskFunction);
 	taskInfo->excuteEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
 
@@ -192,7 +210,10 @@ void CreateTask(int id, const std::string& name, TaskFunction taskFunction) {
 	}
 
 	tasks.push_back(taskInfo);
-	readyQueue.push(taskInfo); // レディーキューに追加
+	task_counter++;
+
+	// TODO: 起動時ACTフラグがあれれば、タスクを起動
+	ActivateTask(taskInfo);
 }
 
 void ViewTaskInfo() {
@@ -206,13 +227,20 @@ void ViewTaskInfo() {
 
 // ------------------------------------------
 
+void ActionTask(ID tskid) {
+	std::shared_ptr<TaskInfo> taskinfo = manager.getContext(tskid);
+	ActivateTask(taskinfo);
+	if (running_task->isExist) TaskYield(); // 実行権を譲る
+}
+
 void TermitTask(ID tskid) {
 	std::shared_ptr<TaskInfo> taskinfo = manager.getContext(tskid);
-	taskinfo->isExist = false;
-	TaskYield(); // 実行権を譲る
+	DeleteTask(taskinfo);
+	if (running_task->isExist) TaskYield(); // 実行権を譲る
 }
 
 void SleepTask() {
+	if (!running_task->isExist) return; // 終了したタスクはスリープにすぐ戻る
 	running_task->isWaiting = true;
 	TaskYield(); // 実行権を譲る
 }
@@ -221,7 +249,7 @@ void WakeupTask(ID tskid) {
 	std::shared_ptr<TaskInfo> taskinfo = manager.getContext(tskid);
 	taskinfo->isWaiting = false;
 	readyQueue.push(taskinfo); // レディーキューに追加
-	TaskYield(); // 実行権を譲る
+	if (running_task->isExist) TaskYield(); // 実行権を譲る
 }
 
 void DelayTask(RELTIM dlytim) {
@@ -230,7 +258,7 @@ void DelayTask(RELTIM dlytim) {
 		running_task->dly_tim = dlytim;
 		waitTimeQueue.push(running_task);
 	}
-	TaskYield(); // 実行権を譲る
+	if (running_task->isExist) TaskYield(); // 実行権を譲る
 }
 
 // タスク情報構造体
@@ -268,12 +296,12 @@ void SetFlag(ID flgid, FLGPTN setptn) {
 		if (task->isWaiting) flagTable[flgid].waitQueue.push(task);
 	}
 
-	TaskYield(); // 実行権を譲る
+	if (running_task->isExist) TaskYield(); // 実行権を譲る
 }
 
 void ClearFlag(ID flgid, FLGPTN clearptn) {
 	flagTable[flgid].flgptn &= clearptn; // フラグのクリア
-	TaskYield(); // 実行権を譲る
+	if (running_task->isExist) TaskYield(); // 実行権を譲る
 }
 
 void WaitFlg(ID flgid, FLGPTN waiptn, MODE wfmode, FLGPTN *p_flgptn) {
@@ -295,7 +323,7 @@ void WaitFlg(ID flgid, FLGPTN waiptn, MODE wfmode, FLGPTN *p_flgptn) {
 		running_task->waitptn = waiptn;
 		running_task->waitmode = wfmode;
 		flagTable[flgid].waitQueue.push(running_task);
-		TaskYield(); // 実行権を譲る
+	if (running_task->isExist) TaskYield(); // 実行権を譲る
 		*p_flgptn = running_task->waitptn;	// 解除パターンを受け取る
 	}
 }
@@ -336,7 +364,7 @@ void pSendDataQueue(ID dtqid, VP_INT data) {
 		}
 		if (task->isWaiting) dataQueueTable[dtqid].waitQueue.push(task);
 	}
-	TaskYield(); // 実行権を譲る
+	if (running_task->isExist) TaskYield(); // 実行権を譲る
 }
 
 void ReceiveDataQueue(ID dtqid, VP_INT *p_data) {
@@ -348,7 +376,7 @@ void ReceiveDataQueue(ID dtqid, VP_INT *p_data) {
 	else {
 		running_task->isWaiting = true; // 自タスクを待ち状態にする
 		dataQueueTable[dtqid].waitQueue.push(running_task);
-		TaskYield(); // 実行権を譲る
+	if (running_task->isExist) TaskYield(); // 実行権を譲る
 		*p_data = running_task->receptData;	// キューからデータを受け取る
 	}
 }
@@ -361,10 +389,11 @@ void ReferenceDataQueue(ID dtqid, T_RDTQ *pk_rdtq) {
 
 // ------------------------------------------
 
-int startupTinyOS() {
+int configTinyOS() {
+
 	// ユーザー定義タスクを作成
 	CreateTask(ID_AAA, "Task 1", []() {
-		while (true) {
+		while (running_task->isExist) {
 			debug_printf("Task 1 is waiting for flag.\n");
 			FLGPTN resultFlag;
 			WaitFlg(ID_AAA, 0x01, TWF_ORW, &resultFlag);
@@ -374,7 +403,7 @@ int startupTinyOS() {
 	});
 
 	CreateTask(ID_BBB, "Task 2", []() {
-		while (true) {
+		while (running_task->isExist) {
 			debug_printf("Task 2 is waiting for flag.\n");
 			FLGPTN resultFlag;
 			WaitFlg(ID_AAA, 0x02, TWF_ORW, &resultFlag);
@@ -384,7 +413,7 @@ int startupTinyOS() {
 	});
 
 	CreateTask(ID_CCC, "Task 3", []() {
-		while (true) {
+		while (running_task->isExist) {
 			debug_printf("Task 3 is waiting for dtq.\n");
 			VP_INT dtq_data;
 			int data;
@@ -395,7 +424,7 @@ int startupTinyOS() {
 	});
 
 	CreateTask(ID_DDD, "Task 4", []() {
-		while (true) {
+		while (running_task->isExist) {
 			debug_printf("Task 4 is sleeping...\n");
 			SleepTask();
 			debug_printf("Task 4 is awake!\n");
@@ -403,7 +432,7 @@ int startupTinyOS() {
 	});
 
 	CreateTask(ID_MMM, "Task Master", []() {
-		while (true) {
+		while (running_task->isExist) {
 			debug_printf("Task Master is setting flag.\n");
 			ViewTaskInfo();
 			DelayTask(10);
@@ -424,6 +453,15 @@ int startupTinyOS() {
 		}
 	});
 
+	return 0;
+}
+
+int startupTinyOS() {
+
+	debug_printf("------- SYSTEM START -------\n");
+
+	configTinyOS();
+
 	// スケジューラーを開始
 	yieldEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
 	if (yieldEvent == nullptr) {
@@ -431,6 +469,14 @@ int startupTinyOS() {
 		return -1;
 	}
 	SetEvent(yieldEvent);
+	return 0;
+}
+
+int stopRequestTinyOS() {
+	for (auto& task : tasks) {
+		DeleteTask(task);
+		SetEvent(task->excuteEvent); // Wake up the task to let it exit
+	}
 	return 0;
 }
 
@@ -442,23 +488,81 @@ int cleanupTinyOS() {
 		CloseHandle(task->excuteEvent);
 	}
 	CloseHandle(yieldEvent);
+	debug_printf("------- SYSTEM END -------\n");
 	return 0;
 }
 
-int main() {
+enum {
+	WM_USER_TIMER = WM_USER + 1,
+};
+
+// ウィンドウプロシージャ
+LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+	case WM_CREATE:
+		SetTimer(hWnd, WM_USER_TIMER, 500, nullptr); // タイマーイベントを設定
+		break;
+	case WM_CLOSE:
+		if (task_counter) {
+			stopRequestTinyOS();
+		}
+		KillTimer(hWnd, WM_USER_TIMER); // タイマーイベントを破棄
+		cleanupTinyOS();
+		DestroyWindow(hWnd);
+		break;
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        break;
+	case WM_TIMER:	// タイマーイベント
+		if (wParam == WM_USER_TIMER) {
+			StartDispatcher();
+		}
+		break;
+    default:
+        return DefWindowProc(hWnd, msg, wParam, lParam);
+    }
+    return 0;
+}
+
+// エントリーポイント
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    // ウィンドウクラスの登録
+    WNDCLASS wc = {};
+    wc.lpfnWndProc = WndProc;
+    wc.hInstance = hInstance;
+    wc.lpszClassName = TEXT("TinyOSWindowClass");
+    RegisterClass(&wc);
+
+    // ウィンドウの作成
+    HWND hWnd = CreateWindowEx(
+        0,
+        wc.lpszClassName,
+        TEXT("TinyOS"),
+        WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+        NULL,
+        NULL,
+        hInstance,
+        NULL
+    );
+
+    if (hWnd == NULL) {
+        return 0;
+    }
+
+    ShowWindow(hWnd, nCmdShow);
 
 	if (startupTinyOS()) {
 		debug_printf("Failed to setup TinyOS.\n");
 		return -1;
 	}
-	else {
-		while (true) {
-			StartDispatcher();
-			Sleep(500); // スケジューリングのためのウェイト
-		}
-	}
 
-	cleanupTinyOS();
+    // メッセージループ
+    MSG msg = {};
+    while (GetMessage(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
 
-	return 0;
+    return 0;
 }
