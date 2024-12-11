@@ -117,8 +117,6 @@ void StartDispatcher() {
 			debug_printf("Dispatching: %s\n", running_task->taskName.c_str());
 			// タスクに実行権を渡す
 			SetEvent(running_task->excuteEvent);
-			ResetEvent(yieldEvent);
-			Sleep(1);
 			WaitForSingleObject(yieldEvent, INFINITE);
 			if (!running_task->isWaiting) readyQueue.push(running_task); // 再度レディーキューに追加
 		}
@@ -142,7 +140,6 @@ static DWORD WINAPI TaskThreadFunction(void* param) {
 	while (taskInfo->isExist) {
 		// レディーキューに接続する
 		readyQueue.push(taskInfo);
-		ResetEvent(taskInfo->excuteEvent);
 		WaitForSingleObject(taskInfo->excuteEvent, INFINITE);
 		// ユーザー定義のタスク関数を実行
 		debug_printf("Task %s is running\n", taskInfo->taskName.c_str());
