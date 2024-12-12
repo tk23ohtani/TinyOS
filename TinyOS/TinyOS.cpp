@@ -301,7 +301,7 @@ void WaitFlg(ID flgid, FLGPTN waiptn, MODE wfmode, FLGPTN *p_flgptn) {
 		conditionMet = ((currentFlags & waiptn) != 0);
 	}
 	if (conditionMet) {
-		*p_flgptn = currentFlags;
+		if (p_flgptn) *p_flgptn = currentFlags;
 	}
 	else {
 		running_task->isWaiting = true; // 自タスクを待ち状態にする
@@ -309,7 +309,7 @@ void WaitFlg(ID flgid, FLGPTN waiptn, MODE wfmode, FLGPTN *p_flgptn) {
 		running_task->waitmode = wfmode;
 		flagTable[flgid].waitQueue.push(running_task);
 	if (running_task->isExist) TaskYield(); // 実行権を譲る
-		*p_flgptn = running_task->waitptn;	// 解除パターンを受け取る
+		if (p_flgptn) *p_flgptn = running_task->waitptn;	// 解除パターンを受け取る
 	}
 }
 
