@@ -39,14 +39,17 @@ typedef struct t_rdtq {
 void ActionTask(ID tskid);
 void TermitTask(ID tskid);
 void SleepTask();
+void iWakeupTask(ID tskid);
 void WakeupTask(ID tskid);
 void DelayTask(RELTIM dlytim);
 
+void iSetFlag(ID flgid, FLGPTN setptn);
 void SetFlag(ID flgid, FLGPTN setptn);
 void ClearFlag(ID flgid, FLGPTN clearptn);
 void WaitFlg(ID flgid, FLGPTN waiptn, MODE wfmode, FLGPTN *p_flgptn);
 void ReferenceFlg(ID flgid, T_RFLG *pk_rflg);
 
+void iSendDataQueue(ID dtqid, VP_INT data);
 void pSendDataQueue(ID dtqid, VP_INT data);
 void ReceiveDataQueue(ID dtqid, VP_INT *p_data);
 void ReferenceDataQueue(ID dtqid, T_RDTQ *pk_rdtq);

@@ -48,6 +48,7 @@ std::vector<std::shared_ptr<TaskInfo>> tasks;
 std::queue<std::shared_ptr<TaskInfo>> readyQueue;
 std::queue<std::shared_ptr<TaskInfo>> waitTimeQueue;
 HANDLE yieldEvent;
+CRITICAL_SECTION criticalSection;
 
 
 
@@ -230,10 +231,16 @@ void SleepTask() {
 	TaskYield(); // 実行権を譲る
 }
 
-void WakeupTask(ID tskid) {
+void iWakeupTask(ID tskid) {
+	/* Critical ====> */ EnterCriticalSection(&criticalSection);
 	std::shared_ptr<TaskInfo> taskinfo = manager.getContext(tskid);
 	taskinfo->isWaiting = false;
 	readyQueue.push(taskinfo); // レディーキューに追加
+	/* <==== Critical */ LeaveCriticalSection(&criticalSection);
+}
+
+void WakeupTask(ID tskid) {
+	iWakeupTask(tskid);
 	if (running_task->isExist) TaskYield(); // 実行権を譲る
 }
 
@@ -254,7 +261,10 @@ struct FlagInfo {
 
 std::unordered_map<ID, FlagInfo> flagTable; // フラグ管理用マップ
 
-void SetFlag(ID flgid, FLGPTN setptn) {
+void iSetFlag(ID flgid, FLGPTN setptn) {
+
+	/* Critical ====> */ EnterCriticalSection(&criticalSection);
+
 	FLGPTN currentFlags = (flagTable[flgid].flgptn |= setptn); // フラグの設定
 
 	debug_printf("Set Flag 1 acquired flag: %d\n", currentFlags);
@@ -271,7 +281,7 @@ void SetFlag(ID flgid, FLGPTN setptn) {
 				conditionMet = ((currentFlags & task->waitptn) != 0);
 			}
 			if (conditionMet) {
-				debug_printf("Resumu Flag 1 task: %s\n", task->taskName.c_str());
+				debug_printf("Resume Flag 1 task: %s\n", task->taskName.c_str());
 				task->isWaiting = false;
 				readyQueue.push(task); // 再度レディーキューに追加
 				task->waitptn = currentFlags;	// 本当は使い回しは良くないが、待ちパターンに解除パターンを入れて戻す
@@ -281,15 +291,25 @@ void SetFlag(ID flgid, FLGPTN setptn) {
 		if (task->isWaiting) flagTable[flgid].waitQueue.push(task);
 	}
 
+	/* <==== Critical */ LeaveCriticalSection(&criticalSection);
+
+}
+
+void SetFlag(ID flgid, FLGPTN setptn) {
+	iSetFlag(flgid, setptn);
 	if (running_task->isExist) TaskYield(); // 実行権を譲る
 }
 
 void ClearFlag(ID flgid, FLGPTN clearptn) {
+	/* Critical ====> */ EnterCriticalSection(&criticalSection);
 	flagTable[flgid].flgptn &= clearptn; // フラグのクリア
+	/* <==== Critical */ LeaveCriticalSection(&criticalSection);
 	if (running_task->isExist) TaskYield(); // 実行権を譲る
 }
 
 void WaitFlg(ID flgid, FLGPTN waiptn, MODE wfmode, FLGPTN *p_flgptn) {
+
+	/* Critical ====> */ EnterCriticalSection(&criticalSection);
 
 	// すでにフラグが有効な場合の対処
 	FLGPTN currentFlags = flagTable[flgid].flgptn;
@@ -301,6 +321,7 @@ void WaitFlg(ID flgid, FLGPTN waiptn, MODE wfmode, FLGPTN *p_flgptn) {
 		conditionMet = ((currentFlags & waiptn) != 0);
 	}
 	if (conditionMet) {
+		/* <==== Critical */ LeaveCriticalSection(&criticalSection);
 		if (p_flgptn) *p_flgptn = currentFlags;
 	}
 	else {
@@ -308,7 +329,8 @@ void WaitFlg(ID flgid, FLGPTN waiptn, MODE wfmode, FLGPTN *p_flgptn) {
 		running_task->waitptn = waiptn;
 		running_task->waitmode = wfmode;
 		flagTable[flgid].waitQueue.push(running_task);
-	if (running_task->isExist) TaskYield(); // 実行権を譲る
+		/* <==== Critical */ LeaveCriticalSection(&criticalSection);
+		if (running_task->isExist) TaskYield(); // 実行権を譲る
 		if (p_flgptn) *p_flgptn = running_task->waitptn;	// 解除パターンを受け取る
 	}
 }
@@ -331,7 +353,10 @@ std::unordered_map<ID, DtqInfo> dataQueueTable; // データキュー管理用�
 
 
 
-void pSendDataQueue(ID dtqid, VP_INT data) {
+void iSendDataQueue(ID dtqid, VP_INT data) {
+
+	/* Critical ====> */ EnterCriticalSection(&criticalSection);
+
 	dataQueueTable[dtqid].data = data;
 	++dataQueueTable[dtqid].count;
 
@@ -349,6 +374,13 @@ void pSendDataQueue(ID dtqid, VP_INT data) {
 		}
 		if (task->isWaiting) dataQueueTable[dtqid].waitQueue.push(task);
 	}
+
+	/* <==== Critical */ LeaveCriticalSection(&criticalSection);
+
+}
+
+void pSendDataQueue(ID dtqid, VP_INT data) {
+	iSendDataQueue(dtqid, data);
 	if (running_task->isExist) TaskYield(); // 実行権を譲る
 }
 
@@ -377,6 +409,8 @@ void ReferenceDataQueue(ID dtqid, T_RDTQ *pk_rdtq) {
 int startupTinyOS() {
 
 	debug_printf("------- SYSTEM START -------\n");
+
+	InitializeCriticalSection(&criticalSection);
 
 	configTinyOS();
 
@@ -412,6 +446,7 @@ int cleanupTinyOS() {
 
 enum {
 	WM_USER_TIMER = WM_USER + 1,
+	WM_USER_TIMER2,
 };
 
 // ウィンドウプロシージャ
@@ -419,6 +454,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
 	case WM_CREATE:
 		SetTimer(hWnd, WM_USER_TIMER, 500, nullptr); // タイマーイベントを設定
+		SetTimer(hWnd, WM_USER_TIMER2, 10000, nullptr); // タイマーイベントを設定
 		break;
 	case WM_CLOSE:
 		if (task_counter) {
@@ -434,6 +470,35 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	case WM_TIMER:	// タイマーイベント
 		if (wParam == WM_USER_TIMER) {
 			StartDispatcher();
+		}
+		else if (wParam == WM_USER_TIMER2) {
+			static int count = 0;
+			// 非タスクからの呼び出しを想定
+			switch (count++) {
+			case 0:
+				debug_printf("ActionTask(ID_MMM)\n");
+				iWakeupTask(ID_MMM);
+				break;
+			case 1:
+				// wait
+				break;
+			case 2:
+				debug_printf("iSendDataQueue(ID_CCC, 765)\n");
+				iSendDataQueue(ID_CCC, (VP_INT)765);
+				break;
+			case 3:
+				debug_printf("iSetFlag(ID_AAA, 0x01)\n");
+				iSetFlag(ID_AAA, 0x01);
+				break;
+			case 4:
+				debug_printf("iSetFlag(ID_AAA, 0x02)\n");
+				iSetFlag(ID_AAA, 0x02);
+				break;
+			default:
+				debug_printf("count = 0\n");
+				count = 0;
+				break;
+			}
 		}
 		break;
     default:
