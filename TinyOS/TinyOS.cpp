@@ -356,8 +356,7 @@ void ReferenceFlg(ID flgid, T_RFLG *pk_rflg) {
 
 // データキュー情報構造体
 struct DtqInfo {
-	VP_INT data;
-	UINT count;
+	std::queue<VP_INT> dataQueue;
 	const char* name;
 	std::queue<std::shared_ptr<TaskInfo>> waitQueue;
 };
@@ -366,7 +365,6 @@ static ContextManager<DtqInfo, ID_DTQ_MAX> dataQueueManager;
 
 void CreateDataQueue(ID dtqid, const char* name) {
 	DtqInfo dtqInfo;
-	dtqInfo.count = 0;
 	dtqInfo.name = name;
 	dataQueueManager.registerContext(dtqid, std::make_shared<DtqInfo>(dtqInfo));
 }
@@ -377,8 +375,7 @@ void iSendDataQueue(ID dtqid, VP_INT data) {
 
 	std::shared_ptr<DtqInfo> dtqInfo = dataQueueManager.getContext(dtqid);
 
-	dtqInfo->data = data;
-	++dtqInfo->count;
+	dtqInfo->dataQueue.push(data);
 
 	debug_printf("Send DataQueue data: %d\n", data);
 
@@ -387,8 +384,8 @@ void iSendDataQueue(ID dtqid, VP_INT data) {
 		dtqInfo->waitQueue.pop();
 		if (task->isExist && task->isWaiting) {
 			debug_printf("Send DataQueue task: %s\n", task->taskName);
-			task->receptData = dtqInfo->data;
-			--dtqInfo->count;
+			task->receptData = dtqInfo->dataQueue.front();
+			dtqInfo->dataQueue.pop();
 			task->isWaiting = false;
 			readyQueue.push(task); // 再度レディーキューに追加
 		}
@@ -408,9 +405,9 @@ void ReceiveDataQueue(ID dtqid, VP_INT *p_data) {
 	/* Critical ====> */ EnterCriticalSection(&criticalSection);
 	std::shared_ptr<DtqInfo> dtqInfo = dataQueueManager.getContext(dtqid);
 	// すでにキューにデータが貯まっている場合の対処
-	if (dtqInfo->count) {
-		*p_data = dtqInfo->data;
-		--dtqInfo->count;
+	if (!dtqInfo->dataQueue.empty()) {
+		*p_data = dtqInfo->dataQueue.front();
+		dtqInfo->dataQueue.pop();
 		/* <==== Critical */ LeaveCriticalSection(&criticalSection);
 }
 	else {
@@ -425,7 +422,7 @@ void ReceiveDataQueue(ID dtqid, VP_INT *p_data) {
 void ReferenceDataQueue(ID dtqid, T_RDTQ *pk_rdtq) {
 	std::shared_ptr<DtqInfo> dtqInfo = dataQueueManager.getContext(dtqid);
 	if (pk_rdtq) {
-		pk_rdtq->sdtqcnt = dtqInfo->count;
+		pk_rdtq->sdtqcnt = dtqInfo->dataQueue.size();
 	}
 }
 
