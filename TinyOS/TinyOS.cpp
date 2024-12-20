@@ -28,7 +28,8 @@ void debug_printf(const char* format, ...)
 struct TaskInfo {
 	HANDLE threadHandle;
 	DWORD threadId;
-	std::string taskName;
+	const char* taskName;
+	VP_INT taskData;
 	bool isExist;
 	HANDLE excuteEvent;
 	bool isWaiting;
@@ -102,7 +103,7 @@ void StartDispatcher() {
 			if (!--wai_tim_tsk->dly_tim) {
 				wai_tim_tsk->isWaiting = false;
 				readyQueue.push(wai_tim_tsk);
-				debug_printf("Wakeup task: %s\n", wai_tim_tsk->taskName.c_str());
+				debug_printf("Wakeup task: %s\n", wai_tim_tsk->taskName);
 			}
 			else {
 				waitTimeQueue.push(wai_tim_tsk);
@@ -115,7 +116,7 @@ void StartDispatcher() {
 		running_task = readyQueue.front();
 		readyQueue.pop();
 		if (running_task->isExist && !running_task->isWaiting) {
-			debug_printf("Dispatching: %s\n", running_task->taskName.c_str());
+			debug_printf("Dispatching: %s\n", running_task->taskName);
 			// タスクに実行権を渡す
 			SetEvent(running_task->excuteEvent);
 			WaitForSingleObject(yieldEvent, INFINITE);
@@ -143,8 +144,8 @@ static DWORD WINAPI TaskThreadFunction(void* param) {
 		readyQueue.push(taskInfo);
 		WaitForSingleObject(taskInfo->excuteEvent, INFINITE);
 		// ユーザー定義のタスク関数を実行
-		debug_printf("Task %s is running\n", taskInfo->taskName.c_str());
-		taskInfo->taskFunction();
+		debug_printf("Task %s is running\n", taskInfo->taskName);
+		taskInfo->taskFunction(taskInfo->taskData);
 	}
 	return 0;
 }
@@ -168,9 +169,10 @@ static void DeleteTask(std::shared_ptr<TaskInfo> taskinfo) {
 }
 
 // ユーザー定義タスクの生成関数
-void CreateTask(int id, const std::string& name, TaskFunction taskFunction) {
+void CreateTask(ID tskid, const char* name, TaskFunction taskFunction, VP_INT taskData) {
 	std::shared_ptr<TaskInfo> taskInfo = std::make_shared<TaskInfo>();
 	taskInfo->taskName = name;
+	taskInfo->taskData = taskData;
 	taskInfo->isExist = true;
 	taskInfo->isWaiting = true;
 	taskInfo->taskFunction = std::move(taskFunction);
@@ -179,7 +181,7 @@ void CreateTask(int id, const std::string& name, TaskFunction taskFunction) {
 	// shared_ptr を格納するためのポインタを用意
 	auto taskInfoPtr = new std::shared_ptr<TaskInfo>(taskInfo);
 
-	manager.registerContext(id, taskInfo);
+	manager.registerContext(tskid, taskInfo);
 
 	taskInfo->threadHandle = CreateThread(
 		nullptr,
@@ -191,7 +193,7 @@ void CreateTask(int id, const std::string& name, TaskFunction taskFunction) {
 		);
 
 	if (taskInfo->threadHandle == nullptr) {
-		debug_printf("Failed to create thread for %s\n", name.c_str());
+		debug_printf("Failed to create thread for %s\n", name);
 		return;
 	}
 
@@ -206,7 +208,7 @@ void ViewTaskInfo() {
 	debug_printf("Task Name\tTask ID\t\tTask waiting\n");
 	debug_printf("----------------------------------------\n");
 	for (auto& task : tasks) {
-		debug_printf("%s\t%d\t\t%s\n", task->taskName.c_str(), task->threadId, (task->isWaiting ? "Yes" : "No"));
+		debug_printf("%s\t%d\t\t%s\n", task->taskName, task->threadId, (task->isWaiting ? "Yes" : "No"));
 	}
 	debug_printf("----------------------------------------\n");
 }
@@ -281,7 +283,7 @@ void iSetFlag(ID flgid, FLGPTN setptn) {
 				conditionMet = ((currentFlags & task->waitptn) != 0);
 			}
 			if (conditionMet) {
-				debug_printf("Resume Flag 1 task: %s\n", task->taskName.c_str());
+				debug_printf("Resume Flag 1 task: %s\n", task->taskName);
 				task->isWaiting = false;
 				readyQueue.push(task); // 再度レディーキューに追加
 				task->waitptn = currentFlags;	// 本当は使い回しは良くないが、待ちパターンに解除パターンを入れて戻す
@@ -366,7 +368,7 @@ void iSendDataQueue(ID dtqid, VP_INT data) {
 		std::shared_ptr<TaskInfo> task = dataQueueTable[dtqid].waitQueue.front();
 		dataQueueTable[dtqid].waitQueue.pop();
 		if (task->isExist && task->isWaiting) {
-			debug_printf("Send DataQueue task: %s\n", task->taskName.c_str());
+			debug_printf("Send DataQueue task: %s\n", task->taskName);
 			task->receptData = dataQueueTable[dtqid].data;
 			--dataQueueTable[dtqid].count;
 			task->isWaiting = false;

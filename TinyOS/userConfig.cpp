@@ -5,7 +5,7 @@
 int configTinyOS() {
 
 	// ユーザー定義タスクを作成
-	CreateTask(ID_AAA, "Task 1", []() {
+	CreateTask(ID_AAA, "Task 1", [](VP_INT) {
 		TASK_FOREVER {
 			VP_INT dtq_data;
 			int data;
@@ -18,9 +18,9 @@ int configTinyOS() {
 				SetFlag(ID_AAA, 0x01);
 			}
 		}
-	});
+	}, NULL);
 
-	CreateTask(ID_BBB, "Task 2", []() {
+	CreateTask(ID_BBB, "Task 2", [](VP_INT) {
 		TASK_FOREVER {
 			VP_INT dtq_data;
 			int data;
@@ -33,9 +33,9 @@ int configTinyOS() {
 				SetFlag(ID_AAA, 0x02);
 			}
 		}
-	});
+	}, NULL);
 
-	CreateTask(ID_CCC, "Task 3", []() {
+	CreateTask(ID_CCC, "Task 3", [](VP_INT) {
 		TASK_FOREVER {
 			VP_INT dtq_data;
 			int data;
@@ -58,9 +58,9 @@ int configTinyOS() {
 				debug_printf("Task 3 acquired flag: %d\n", resultFlag);
 			}
 		}
-	});
+	}, NULL);
 
-	CreateTask(ID_MMM, "Task Master", []() {
+	CreateTask(ID_MMM, "Task Master", [](VP_INT) {
 		TASK_FOREVER {
 			debug_printf("Task Master is sleeping...\n");
 			SleepTask();
@@ -69,7 +69,7 @@ int configTinyOS() {
 			debug_printf("Task Master is sending data.\n");
 			pSendDataQueue(ID_CCC, (VP_INT)789);
 		}
-	});
+	}, NULL);
 
 	return 0;
 }
