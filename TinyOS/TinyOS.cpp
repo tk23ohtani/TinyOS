@@ -82,7 +82,7 @@ private:
 	std::unordered_map<int, std::shared_ptr<T>> contexts_;
 };
 
-static ContextManager<TaskInfo, ID_MAX> task_manager;
+static ContextManager<TaskInfo, ID_TASK_MAX> task_manager;
 
 static std::shared_ptr<TaskInfo> running_task;
 
@@ -260,7 +260,7 @@ struct FlagInfo {
 	std::queue<std::shared_ptr<TaskInfo>> waitQueue;
 };
 
-static ContextManager<FlagInfo, ID_MAX> flagManager;
+static ContextManager<FlagInfo, ID_FLAG_MAX> flagManager;
 
 void CreteFlag(ID flgid, const char* name, FLGPTN iflgptn) {
 	FlagInfo flagInfo;
@@ -361,7 +361,7 @@ struct DtqInfo {
 	std::queue<std::shared_ptr<TaskInfo>> waitQueue;
 };
 
-static ContextManager<DtqInfo, ID_MAX> dataQueueManager;
+static ContextManager<DtqInfo, ID_DTQ_MAX> dataQueueManager;
 
 void CreateDataQueue(ID dtqid, const char* name) {
 	DtqInfo dtqInfo;
@@ -501,22 +501,22 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 			switch (count++) {
 			case 0:
 				debug_printf("ActionTask(ID_MMM)\n");
-				iWakeupTask(ID_MMM);
+				iWakeupTask(ID_TASK_MMM);
 				break;
 			case 1:
 				// wait
 				break;
 			case 2:
 				debug_printf("iSendDataQueue(ID_CCC, 765)\n");
-				iSendDataQueue(ID_CCC, (VP_INT)765);
+				iSendDataQueue(ID_DTQ_CCC, (VP_INT)765);
 				break;
 			case 3:
 				debug_printf("iSetFlag(ID_AAA, 0x01)\n");
-				iSetFlag(ID_AAA, 0x01);
+				iSetFlag(ID_FLAG_AAA, 0x01);
 				break;
 			case 4:
 				debug_printf("iSetFlag(ID_AAA, 0x02)\n");
-				iSetFlag(ID_AAA, 0x02);
+				iSetFlag(ID_FLAG_AAA, 0x02);
 				break;
 			default:
 				debug_printf("count = 0\n");
