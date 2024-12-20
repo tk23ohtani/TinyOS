@@ -36,6 +36,11 @@ typedef struct t_rdtq {
 	VB    const *name;
 } T_RDTQ;
 
+// タスクの関数プロトタイプ
+typedef void (*TaskFunction)(VP_INT);
+
+// タスクの生成にはこの関数を使用する
+void CreateTask(ID tskid, const char* name, TaskFunction taskFunction, VP_INT taskData);
 void ActionTask(ID tskid);
 void TermitTask(ID tskid);
 void SleepTask();
@@ -43,12 +48,14 @@ void iWakeupTask(ID tskid);
 void WakeupTask(ID tskid);
 void DelayTask(RELTIM dlytim);
 
+void CreteFlag(ID flgid, const char* name, FLGPTN iflgptn);
 void iSetFlag(ID flgid, FLGPTN setptn);
 void SetFlag(ID flgid, FLGPTN setptn);
 void ClearFlag(ID flgid, FLGPTN clearptn);
 void WaitFlg(ID flgid, FLGPTN waiptn, MODE wfmode, FLGPTN *p_flgptn);
 void ReferenceFlg(ID flgid, T_RFLG *pk_rflg);
 
+void CreateDataQueue(ID dtqid, const char* name);
 void iSendDataQueue(ID dtqid, VP_INT data);
 void pSendDataQueue(ID dtqid, VP_INT data);
 void ReceiveDataQueue(ID dtqid, VP_INT *p_data);
