@@ -44,12 +44,12 @@ struct TaskInfo {
 	TaskFunction taskFunction;
 };
 
-// グローバル変数
-std::vector<std::shared_ptr<TaskInfo>> tasks;
-std::queue<std::shared_ptr<TaskInfo>> readyQueue;
-std::queue<std::shared_ptr<TaskInfo>> waitTimeQueue;
-HANDLE yieldEvent;
-CRITICAL_SECTION criticalSection;
+// グローバル変数（ファイルスコープ）
+static std::vector<std::shared_ptr<TaskInfo>> tasks;
+static std::queue<std::shared_ptr<TaskInfo>> readyQueue;
+static std::queue<std::shared_ptr<TaskInfo>> waitTimeQueue;
+static HANDLE yieldEvent;
+static CRITICAL_SECTION criticalSection;
 
 
 
@@ -84,6 +84,7 @@ private:
 
 static ContextManager<TaskInfo, ID_TASK_MAX> task_manager;
 
+// 自タスクを指定した場合に参照するタスク管理情報を維持（非タスクでは使用禁止）
 static std::shared_ptr<TaskInfo> running_task;
 
 // 実行タスクが存在するかどうかを返す
@@ -416,7 +417,7 @@ void ReceiveDataQueue(ID dtqid, VP_INT *p_data) {
 		running_task->isWaiting = true; // 自タスクを待ち状態にする
 		dtqInfo->waitQueue.push(running_task);
 		/* <==== Critical */ LeaveCriticalSection(&criticalSection);
-	if (running_task->isExist) TaskYield(); // 実行権を譲る
+		if (running_task->isExist) TaskYield(); // 実行権を譲る
 		*p_data = running_task->receptData;	// キューからデータを受け取る
 	}
 }
