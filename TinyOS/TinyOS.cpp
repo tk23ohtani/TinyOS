@@ -55,18 +55,19 @@ CRITICAL_SECTION criticalSection;
 
 
 // ContextManagerクラス - IDでContextを登録・取得する
+template <typename T, int CONTEXT_MAX>
 class ContextManager {
 public:
 	// コンテキストをIDに基づいて登録
-	void registerContext(int id, std::shared_ptr<TaskInfo> context) {
-		if (id < 0 || id >= ID_MAX) {
+	void registerContext(int id, std::shared_ptr<T> context) {
+		if (id < 0 || id >= CONTEXT_MAX) {
 			throw std::out_of_range("Invalid ID");
 		}
 		contexts_[id] = context;
 	}
 
 	// IDに基づいてコンテキストを取得
-	std::shared_ptr<TaskInfo> getContext(int id) const {
+	std::shared_ptr<T> getContext(int id) const {
 		auto it = contexts_.find(id);
 		if (it != contexts_.end()) {
 			return it->second;
@@ -78,15 +79,12 @@ public:
 
 private:
 	// コンテキストを格納するマップ
-	std::unordered_map<int, std::shared_ptr<TaskInfo>> contexts_;
-} manager;
+	std::unordered_map<int, std::shared_ptr<T>> contexts_;
+};
 
+static ContextManager<TaskInfo, ID_MAX> task_manager;
 
-
-
-
-
-std::shared_ptr<TaskInfo> running_task;
+static std::shared_ptr<TaskInfo> running_task;
 
 // 実行タスクが存在するかどうかを返す
 bool isTaskExist() {
@@ -181,7 +179,7 @@ void CreateTask(ID tskid, const char* name, TaskFunction taskFunction, VP_INT ta
 	// shared_ptr を格納するためのポインタを用意
 	auto taskInfoPtr = new std::shared_ptr<TaskInfo>(taskInfo);
 
-	manager.registerContext(tskid, taskInfo);
+	task_manager.registerContext(tskid, taskInfo);
 
 	taskInfo->threadHandle = CreateThread(
 		nullptr,
@@ -216,13 +214,13 @@ void ViewTaskInfo() {
 // ------------------------------------------
 
 void ActionTask(ID tskid) {
-	std::shared_ptr<TaskInfo> taskinfo = manager.getContext(tskid);
+	std::shared_ptr<TaskInfo> taskinfo = task_manager.getContext(tskid);
 	ActivateTask(taskinfo);
 	if (running_task->isExist) TaskYield(); // 実行権を譲る
 }
 
 void TermitTask(ID tskid) {
-	std::shared_ptr<TaskInfo> taskinfo = manager.getContext(tskid);
+	std::shared_ptr<TaskInfo> taskinfo = task_manager.getContext(tskid);
 	DeleteTask(taskinfo);
 	if (running_task->isExist) TaskYield(); // 実行権を譲る
 }
@@ -235,7 +233,7 @@ void SleepTask() {
 
 void iWakeupTask(ID tskid) {
 	/* Critical ====> */ EnterCriticalSection(&criticalSection);
-	std::shared_ptr<TaskInfo> taskinfo = manager.getContext(tskid);
+	std::shared_ptr<TaskInfo> taskinfo = task_manager.getContext(tskid);
 	taskinfo->isWaiting = false;
 	readyQueue.push(taskinfo); // レディーキューに追加
 	/* <==== Critical */ LeaveCriticalSection(&criticalSection);
@@ -255,25 +253,34 @@ void DelayTask(RELTIM dlytim) {
 	if (running_task->isExist) TaskYield(); // 実行権を譲る
 }
 
-// タスク情報構造体
+// イベントフラグ情報構造体
 struct FlagInfo {
 	FLGPTN flgptn;
+	const char* name;
 	std::queue<std::shared_ptr<TaskInfo>> waitQueue;
 };
 
-std::unordered_map<ID, FlagInfo> flagTable; // フラグ管理用マップ
+static ContextManager<FlagInfo, ID_MAX> flagManager;
+
+void CreteFlag(ID flgid, const char* name, FLGPTN iflgptn) {
+	FlagInfo flagInfo;
+	flagInfo.name = name;
+	flagInfo.flgptn = iflgptn;
+	flagManager.registerContext(flgid, std::make_shared<FlagInfo>(flagInfo));
+}
 
 void iSetFlag(ID flgid, FLGPTN setptn) {
 
 	/* Critical ====> */ EnterCriticalSection(&criticalSection);
 
-	FLGPTN currentFlags = (flagTable[flgid].flgptn |= setptn); // フラグの設定
+	std::shared_ptr<FlagInfo> flagInfo = flagManager.getContext(flgid);
+	FLGPTN currentFlags = (flagInfo->flgptn |= setptn); // フラグの設定
 
 	debug_printf("Set Flag 1 acquired flag: %d\n", currentFlags);
 
-	if (!flagTable[flgid].waitQueue.empty()) {
-		std::shared_ptr<TaskInfo> task = flagTable[flgid].waitQueue.front();
-		flagTable[flgid].waitQueue.pop();
+	if (!flagInfo->waitQueue.empty()) {
+		std::shared_ptr<TaskInfo> task = flagInfo->waitQueue.front();
+		flagInfo->waitQueue.pop();
 		if (task->isExist && task->isWaiting) {
 			bool conditionMet = false;
 			if (task->waitmode == TWF_ANDW) {
@@ -290,7 +297,7 @@ void iSetFlag(ID flgid, FLGPTN setptn) {
 				// break;
 			}
 		}
-		if (task->isWaiting) flagTable[flgid].waitQueue.push(task);
+		if (task->isWaiting) flagInfo->waitQueue.push(task);
 	}
 
 	/* <==== Critical */ LeaveCriticalSection(&criticalSection);
@@ -304,7 +311,8 @@ void SetFlag(ID flgid, FLGPTN setptn) {
 
 void ClearFlag(ID flgid, FLGPTN clearptn) {
 	/* Critical ====> */ EnterCriticalSection(&criticalSection);
-	flagTable[flgid].flgptn &= clearptn; // フラグのクリア
+	std::shared_ptr<FlagInfo> flagInfo = flagManager.getContext(flgid);
+	flagInfo->flgptn &= clearptn; // フラグのクリア
 	/* <==== Critical */ LeaveCriticalSection(&criticalSection);
 	if (running_task->isExist) TaskYield(); // 実行権を譲る
 }
@@ -314,7 +322,8 @@ void WaitFlg(ID flgid, FLGPTN waiptn, MODE wfmode, FLGPTN *p_flgptn) {
 	/* Critical ====> */ EnterCriticalSection(&criticalSection);
 
 	// すでにフラグが有効な場合の対処
-	FLGPTN currentFlags = flagTable[flgid].flgptn;
+	std::shared_ptr<FlagInfo> flagInfo = flagManager.getContext(flgid);
+	FLGPTN currentFlags = flagInfo->flgptn;
 	bool conditionMet = false;
 	if (wfmode == TWF_ANDW) {
 		conditionMet = ((currentFlags & waiptn) == waiptn);
@@ -330,7 +339,7 @@ void WaitFlg(ID flgid, FLGPTN waiptn, MODE wfmode, FLGPTN *p_flgptn) {
 		running_task->isWaiting = true; // 自タスクを待ち状態にする
 		running_task->waitptn = waiptn;
 		running_task->waitmode = wfmode;
-		flagTable[flgid].waitQueue.push(running_task);
+		flagInfo->waitQueue.push(running_task);
 		/* <==== Critical */ LeaveCriticalSection(&criticalSection);
 		if (running_task->isExist) TaskYield(); // 実行権を譲る
 		if (p_flgptn) *p_flgptn = running_task->waitptn;	// 解除パターンを受け取る
@@ -338,43 +347,51 @@ void WaitFlg(ID flgid, FLGPTN waiptn, MODE wfmode, FLGPTN *p_flgptn) {
 }
 
 void ReferenceFlg(ID flgid, T_RFLG *pk_rflg) {
+	std::shared_ptr<FlagInfo> flagInfo = flagManager.getContext(flgid);
 	if (pk_rflg) {
-		pk_rflg->flgptn = flagTable[flgid].flgptn;
+		pk_rflg->flgptn = flagInfo->flgptn;
 	}
 }
 
-// タスク情報構造体
+// データキュー情報構造体
 struct DtqInfo {
 	VP_INT data;
 	UINT count;
+	const char* name;
 	std::queue<std::shared_ptr<TaskInfo>> waitQueue;
 };
 
-std::unordered_map<ID, DtqInfo> dataQueueTable; // データキュー管理用マップ
+static ContextManager<DtqInfo, ID_MAX> dataQueueManager;
 
-
-
+void CreateDataQueue(ID dtqid, const char* name) {
+	DtqInfo dtqInfo;
+	dtqInfo.count = 0;
+	dtqInfo.name = name;
+	dataQueueManager.registerContext(dtqid, std::make_shared<DtqInfo>(dtqInfo));
+}
 
 void iSendDataQueue(ID dtqid, VP_INT data) {
 
 	/* Critical ====> */ EnterCriticalSection(&criticalSection);
 
-	dataQueueTable[dtqid].data = data;
-	++dataQueueTable[dtqid].count;
+	std::shared_ptr<DtqInfo> dtqInfo = dataQueueManager.getContext(dtqid);
+
+	dtqInfo->data = data;
+	++dtqInfo->count;
 
 	debug_printf("Send DataQueue data: %d\n", data);
 
-	if (!dataQueueTable[dtqid].waitQueue.empty()) {
-		std::shared_ptr<TaskInfo> task = dataQueueTable[dtqid].waitQueue.front();
-		dataQueueTable[dtqid].waitQueue.pop();
+	if (!dtqInfo->waitQueue.empty()) {
+		std::shared_ptr<TaskInfo> task = dtqInfo->waitQueue.front();
+		dtqInfo->waitQueue.pop();
 		if (task->isExist && task->isWaiting) {
 			debug_printf("Send DataQueue task: %s\n", task->taskName);
-			task->receptData = dataQueueTable[dtqid].data;
-			--dataQueueTable[dtqid].count;
+			task->receptData = dtqInfo->data;
+			--dtqInfo->count;
 			task->isWaiting = false;
 			readyQueue.push(task); // 再度レディーキューに追加
 		}
-		if (task->isWaiting) dataQueueTable[dtqid].waitQueue.push(task);
+		if (task->isWaiting) dtqInfo->waitQueue.push(task);
 	}
 
 	/* <==== Critical */ LeaveCriticalSection(&criticalSection);
@@ -387,22 +404,27 @@ void pSendDataQueue(ID dtqid, VP_INT data) {
 }
 
 void ReceiveDataQueue(ID dtqid, VP_INT *p_data) {
+	/* Critical ====> */ EnterCriticalSection(&criticalSection);
+	std::shared_ptr<DtqInfo> dtqInfo = dataQueueManager.getContext(dtqid);
 	// すでにキューにデータが貯まっている場合の対処
-	if (dataQueueTable[dtqid].count) {
-		*p_data = dataQueueTable[dtqid].data;
-		--dataQueueTable[dtqid].count;
-	}
+	if (dtqInfo->count) {
+		*p_data = dtqInfo->data;
+		--dtqInfo->count;
+		/* <==== Critical */ LeaveCriticalSection(&criticalSection);
+}
 	else {
 		running_task->isWaiting = true; // 自タスクを待ち状態にする
-		dataQueueTable[dtqid].waitQueue.push(running_task);
+		dtqInfo->waitQueue.push(running_task);
+		/* <==== Critical */ LeaveCriticalSection(&criticalSection);
 	if (running_task->isExist) TaskYield(); // 実行権を譲る
 		*p_data = running_task->receptData;	// キューからデータを受け取る
 	}
 }
 
 void ReferenceDataQueue(ID dtqid, T_RDTQ *pk_rdtq) {
+	std::shared_ptr<DtqInfo> dtqInfo = dataQueueManager.getContext(dtqid);
 	if (pk_rdtq) {
-		pk_rdtq->sdtqcnt = dataQueueTable[dtqid].count;
+		pk_rdtq->sdtqcnt = dtqInfo->count;
 	}
 }
 

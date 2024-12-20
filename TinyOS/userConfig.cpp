@@ -4,6 +4,12 @@
 
 int configTinyOS() {
 
+	CreteFlag(ID_AAA, "Flag 1", 0x00);
+
+	CreateDataQueue(ID_AAA, "DataQueue 1");
+	CreateDataQueue(ID_BBB, "DataQueue 2");
+	CreateDataQueue(ID_CCC, "DataQueue 3");
+
 	// ユーザー定義タスクを作成
 	CreateTask(ID_AAA, "Task 1", [](VP_INT) {
 		TASK_FOREVER {
